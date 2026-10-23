@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package agora.identity.v1;
+option java_package = "com.agora.contracts.identity.v1";
+option java_multiple_files = true;
+
+// Internal only. x-agora-internal-token authenticates the caller.
+// UNAUTHENTICATED: absent, expired, or suspended session.
+// PERMISSION_DENIED: invalid CSRF or missing/invalid internal credential.
+// UNAVAILABLE: dependency failure. No PII or credential material is returned.
+service SessionIdentity {
+  rpc ResolveSession(ResolveSessionRequest) returns (ResolveSessionResponse);
+}
+
+message ResolveSessionRequest {
+  string session_id = 1;
+  string csrf_token = 2;
+  bool require_csrf = 3;
+}
+
+message ResolveSessionResponse {
+  string account_id = 1;
+  repeated string roles = 2;
+}

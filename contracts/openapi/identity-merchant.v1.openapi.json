@@ -1,0 +1,1652 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agora Identity & Merchant API",
+    "version": "0.1.0",
+    "description": "Bundle cho identity-service và merchant-service riêng; x-service chỉ provider. Endpoint nghiệp vụ chưa triển khai. Cookie/CSRF là opaque, không xem ví dụ như credential."
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "Same-origin routing; local rewrites theo allowlist."
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "Session cookie và CSRF."
+    },
+    {
+      "name": "Accounts",
+      "description": "Account của mình."
+    },
+    {
+      "name": "Merchant",
+      "description": "Shop thuộc owner."
+    },
+    {
+      "name": "Administration",
+      "description": "Backend kiểm tra ADMIN."
+    }
+  ],
+  "paths": {
+    "/auth/csrf": {
+      "get": {
+        "operationId": "getCsrfToken",
+        "x-service": "identity-service",
+        "summary": "Lấy CSRF trước đăng nhập hoặc sau login/logout.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "Token cho session; có thể tạo anonymous session.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Set-Cookie": {
+                "description": "AGORA_SESSION=<opaque>; Path=/; HttpOnly; SameSite=Lax. Secure trên HTTPS, trừ profile local HTTP. Login đổi session ID; logout đặt cookie hết hạn.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsrfToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "description": "Cho phép anonymous, no-store. Lấy lại sau login/logout."
+      }
+    },
+    "/auth/registrations": {
+      "post": {
+        "operationId": "registerAccount",
+        "x-service": "identity-service",
+        "summary": "Đăng ký USER; không tự đăng nhập.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "201": {
+            "description": "Account được tạo với USER, không cấp ADMIN.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          }
+        },
+        "description": "Không tự retry. Email trim/lowercase unique; password không trim. Field role hoặc field lạ bị từ chối."
+      }
+    },
+    "/auth/sessions": {
+      "post": {
+        "operationId": "createSession",
+        "x-service": "identity-service",
+        "summary": "Đăng nhập bằng email/password.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "Session ID được đổi; client lấy CSRF mới.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Set-Cookie": {
+                "description": "AGORA_SESSION=<opaque>; Path=/; HttpOnly; SameSite=Lax. Secure trên HTTPS, trừ profile local HTTP. Login đổi session ID; logout đặt cookie hết hạn.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          }
+        },
+        "description": "Sai credential trả lỗi chung. Không tự retry; có rate limit. Không log password/cookie."
+      }
+    },
+    "/auth/sessions/current": {
+      "delete": {
+        "operationId": "deleteCurrentSession",
+        "x-service": "identity-service",
+        "summary": "Đăng xuất và vô hiệu hóa session.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "204": {
+            "description": "Session vô hiệu hóa, cookie hết hạn; client lấy CSRF mới.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Set-Cookie": {
+                "description": "AGORA_SESSION=<opaque>; Path=/; HttpOnly; SameSite=Lax. Secure trên HTTPS, trừ profile local HTTP. Login đổi session ID; logout đặt cookie hết hạn.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "description": "Gọi lại khi không còn session trả 401 hoặc 403 nếu CSRF sai; không khôi phục session đã logout."
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "getCurrentAccount",
+        "x-service": "identity-service",
+        "summary": "Đọc account và quyền hiện tại.",
+        "tags": [
+          "Accounts"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hồ sơ tài khoản đang đăng nhập.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/me/shop": {
+      "get": {
+        "operationId": "getMyShop",
+        "x-service": "merchant-service",
+        "summary": "Đọc shop của owner hiện tại.",
+        "tags": [
+          "Merchant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Shop của owner đang đăng nhập.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shop"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "description": "Chưa có shop trả 404 SHOP_NOT_FOUND; không cache công khai."
+      }
+    },
+    "/shops": {
+      "post": {
+        "operationId": "createShop",
+        "x-service": "merchant-service",
+        "summary": "Tạo một shop DRAFT cho owner hiện tại.",
+        "tags": [
+          "Merchant"
+        ],
+        "responses": {
+          "201": {
+            "description": "DRAFT được tạo một lần.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Location": {
+                "description": "Đường dẫn đọc shop của owner.",
+                "schema": {
+                  "type": "string",
+                  "const": "/api/v1/me/shop"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shop"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopCreate"
+              }
+            }
+          }
+        },
+        "description": "Một owner tối đa một shop bằng unique constraint. Owner lấy từ session. Không nhận ShopId GHN hoặc token từ form này."
+      }
+    },
+    "/shops/{shopId}": {
+      "patch": {
+        "operationId": "updateShop",
+        "x-service": "merchant-service",
+        "summary": "Sửa DRAFT hoặc REJECTED thuộc owner.",
+        "tags": [
+          "Merchant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Shop sau sửa; REJECTED thành DRAFT, version tăng.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shop"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ShopId"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopUpdate"
+              }
+            }
+          }
+        },
+        "description": "expectedVersion và ít nhất một field thay đổi. Không cho gán status/owner. Shop chéo owner trả 404. Sửa ACTIVE ở lát cắt sau."
+      }
+    },
+    "/shops/{shopId}/submissions": {
+      "post": {
+        "operationId": "submitShop",
+        "x-service": "merchant-service",
+        "summary": "Gửi DRAFT sang PENDING_REVIEW.",
+        "tags": [
+          "Merchant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Shop chờ review, version tăng.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shop"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ShopId"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopSubmit"
+              }
+            }
+          }
+        },
+        "description": "Chỉ owner, DRAFT và expectedVersion hiện tại. Key/payload lặp replay kết quả gốc; ý định mới trên state không hợp lệ trả 409."
+      }
+    },
+    "/admin/shops": {
+      "get": {
+        "operationId": "listShopsForReview",
+        "x-service": "merchant-service",
+        "summary": "ADMIN liệt kê shop, có phân trang/lọc.",
+        "tags": [
+          "Administration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Danh sách riêng cho ADMIN.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ShopStatus"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "description": "ADMIN được kiểm tra ở backend. Sort cố định createdAt DESC rồi id DESC."
+      }
+    },
+    "/admin/shops/{shopId}/reviews": {
+      "post": {
+        "operationId": "reviewShop",
+        "x-service": "merchant-service",
+        "summary": "ADMIN duyệt/từ chối PENDING_REVIEW.",
+        "tags": [
+          "Administration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Shop ACTIVE/REJECTED; review và audit lưu cùng transaction.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shop"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ShopId"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopReview"
+              }
+            }
+          }
+        },
+        "description": "ADMIN, expectedVersion hiện tại. REJECT bắt buộc reason 10–1000 ký tự. Hai admin cùng version chỉ một thành công; key/payload lặp không thêm audit/review trùng."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "AGORA_SESSION",
+        "description": "HttpOnly, SameSite=Lax, Path=/, Secure trên HTTPS; idle 30 phút. Không lưu session ID trong JS."
+      }
+    },
+    "parameters": {
+      "Csrf": {
+        "name": "X-CSRF-TOKEN",
+        "in": "header",
+        "required": true,
+        "description": "Lấy từ /auth/csrf; lấy lại sau login/logout.",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "UUID ổn định cho một ý định; scope actor+operation. Payload khác 422; đang chạy 409; xong replay; retention onboarding ít nhất 7 ngày.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "ShopId": {
+        "name": "shopId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string"
+          },
+          "traceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "traceId"
+        ]
+      },
+      "CsrfToken": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "headerName": {
+            "type": "string",
+            "const": "X-CSRF-TOKEN"
+          }
+        },
+        "required": [
+          "token",
+          "headerName"
+        ]
+      },
+      "Account": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "USER",
+                "ADMIN"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "displayName",
+          "roles",
+          "status",
+          "createdAt"
+        ]
+      },
+      "Registration": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "displayName"
+        ]
+      },
+      "Login": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "Address": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "countryCode": {
+            "type": "string",
+            "const": "VN"
+          },
+          "provinceCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "provinceName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "wardCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "wardName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "streetAddress": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "countryCode",
+          "provinceCode",
+          "provinceName",
+          "wardCode",
+          "wardName",
+          "streetAddress"
+        ]
+      },
+      "ShopCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "contactPhone": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 20
+          },
+          "pickupAddress": {
+            "$ref": "#/components/schemas/Address"
+          }
+        },
+        "required": [
+          "name",
+          "contactPhone",
+          "pickupAddress"
+        ]
+      },
+      "ShopUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "contactPhone": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 20
+          },
+          "pickupAddress": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "minProperties": 2
+      },
+      "ShopStatus": {
+        "type": "string",
+        "enum": [
+          "DRAFT",
+          "PENDING_REVIEW",
+          "ACTIVE",
+          "REJECTED",
+          "SUSPENDED"
+        ]
+      },
+      "Shop": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "contactPhone": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 20
+          },
+          "pickupAddress": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ShopStatus"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastReviewReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "ownerAccountId",
+          "name",
+          "description",
+          "contactPhone",
+          "pickupAddress",
+          "status",
+          "version",
+          "lastReviewReason",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ShopSubmit": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ]
+      },
+      "ShopReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVE",
+              "REJECT"
+            ]
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "decision",
+          "expectedVersion"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "REJECT"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            },
+            "then": {
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 10,
+                  "maxLength": 1000
+                }
+              },
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        ]
+      },
+      "ShopPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Shop"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "totalItems": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems"
+        ]
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "400 — JSON hoặc tham số cú pháp không đọc được.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthenticated": {
+        "description": "401 — Chưa đăng nhập, hết phiên hoặc sai credential.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "403 — Thiếu quyền hoặc CSRF không hợp lệ.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "404 — Không có tài nguyên hoặc không thuộc owner.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "409 — Trạng thái/version xung đột, email/shop đã tồn tại hoặc idempotency đang chạy.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unprocessable": {
+        "description": "422 — Input không hợp lệ, field lạ hoặc key đổi payload.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "429 — Vượt giới hạn thử; chờ Retry-After.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "Retry-After": {
+            "description": "Số giây chờ.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "500 — Lỗi nội bộ đã che chi tiết.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "503 — Dependency bắt buộc không sẵn sàng; không bỏ auth.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Không cache response riêng hoặc token.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "X-Trace-Id": {
+            "description": "Correlation identifier; không chứa secret.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}
