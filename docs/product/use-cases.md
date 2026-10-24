@@ -127,7 +127,7 @@ Trạng thái: bản nháp để review cùng [bản đồ context](capability-m
 - AC-13.1: Feedback xác minh qua Commerce; chưa mua/chưa giao thành công không được review.
 - AC-13.2: một review/dòng đơn bằng ràng buộc duy nhất; request đồng thời không tạo trùng.
 - AC-13.3: refund không tự xóa review hợp lệ; review bị ẩn không tính sao công khai.
-- AC-13.4: MongoDB lưu nội dung/metadata; thống kê sao có thể tính lại sau sửa/ẩn hoặc sự kiện lặp.
+- AC-13.4: PostgreSQL của Feedback lưu nội dung và metadata, unique order_line_id và CHECK rating 1–5; thống kê sao có thể tính lại sau sửa/ẩn hoặc sự kiện lặp. JSONB chỉ dùng cho metadata tùy chọn, không thay constraint nghiệp vụ.
 
 ## UC-14 — Hỏi đáp sản phẩm
 

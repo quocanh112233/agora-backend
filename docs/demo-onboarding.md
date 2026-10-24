@@ -103,4 +103,4 @@ Chưa tạo job điều phối xuyên repo vì chưa có cặp commit chứa imp
 
 ## 7. Phần tiếp theo
 
-Sau nghiệm thu mở shop: Catalog với product/SKU đóng gói cố định và ảnh Cloudinary. MongoDB dành cho Feedback về sau; VNPAY/GHN sandbox đến lát cắt checkout/giao hàng. Chưa cần credential các nhà cung cấp để chạy demo tài khoản/mở shop.
+Sau nghiệm thu mở shop: Catalog với product/SKU đóng gói cố định và ảnh Cloudinary. Feedback về sau cũng dùng PostgreSQL riêng theo [ADR-0003](decisions/0003-postgresql-only.md); không cần cài MongoDB. VNPAY/GHN sandbox đến lát cắt checkout/giao hàng. Chưa cần credential các nhà cung cấp để chạy demo tài khoản/mở shop. Người dùng đã có tài khoản Cloudinary; cấu hình credential ở file local bị ignore khi bắt đầu tích hợp ảnh.

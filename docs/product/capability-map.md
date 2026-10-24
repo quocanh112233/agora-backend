@@ -12,13 +12,13 @@ Tiêu chí thành công: hoàn thành một luồng mua hàng có thể demo, b�
 |---|---|
 | Kiến trúc/backend | Microservice + DDD; Java, Spring Boot; gRPC nội bộ |
 | Frontend | Next.js + Zustand |
-| Dữ liệu | PostgreSQL cho giao dịch; MongoDB cho review, hỏi đáp và phản hồi |
+| Dữ liệu | Chỉ PostgreSQL, gồm cả review, hỏi đáp và phản hồi; database thuộc từng service |
 | Hình ảnh | Cloudinary cho sản phẩm/avatar; đề xuất thêm ảnh review/khiếu nại |
 | Thanh toán/vận chuyển | VNPAY sandbox; GHN staging/sandbox |
 | Checkout | Một shop mỗi lần thanh toán |
 | Vận hành | Docker, GitHub Actions |
 
-Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; thiết kế session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md) và [ADR-0002](../decisions/0002-separate-identity-merchant.md). Đã bootstrap khung Identity và database local agora; endpoint nghiệp vụ và nơi deploy chưa có.
+Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md) và [ADR-0003](../decisions/0003-postgresql-only.md). Ngày 23/10/2026, M1 tài khoản/mở shop/admin review đã nghiệm thu local; service sau và deployment chưa triển khai.
 
 ## 2. Mặc định thiết kế đề xuất
 
@@ -57,7 +57,7 @@ Module ID ổn định, dùng để truy vết tài liệu sau. Phụ thuộc l�
 | `payment` | PaymentAttempt, ProviderTransaction, Refund, sổ tiền, đối soát mô phỏng | Nhận snapshot/tham chiếu; không gọi Commerce để sửa đơn |
 | `fulfillment` | Shipment, kiện, báo giá, mã/trạng thái GHN, lịch sử đồng bộ | `merchant` |
 | `commerce` | Cart, Checkout, Order, Cancellation, QualityClaim; điều phối giao dịch | `identity-access`, `merchant`, `catalog-inventory`, `payment`, `fulfillment` |
-| `feedback` | Review, Question, Answer, SellerReply, kiểm duyệt; MongoDB | `identity-access`, `merchant`, `catalog-inventory`, `commerce` |
+| `feedback` | Review, Question, Answer, SellerReply, kiểm duyệt; PostgreSQL | `identity-access`, `merchant`, `catalog-inventory`, `commerce` |
 | `notification` | Thông báo trong ứng dụng, đã đọc, lịch sử gửi | Sự kiện module nguồn; không quyết định giao dịch |
 
 Thứ tự làm rõ hợp đồng: Identity và Payment; Merchant; Catalog/Inventory và Fulfillment; Commerce; Feedback và Notification. Đây là quan hệ phụ thuộc, chưa phải lịch triển khai.
@@ -91,11 +91,12 @@ Payment lưu kết quả xác minh rồi thông báo bền vững cho Commerce, 
 
 HTTP/JSON cho web qua routing cùng origin, chưa thêm BFF nghiệp vụ; gRPC cho lời gọi nội bộ đồng bộ. Theo [ADR-0001](../decisions/0001-foundation.md), chọn RabbitMQ, transactional outbox và consumer dedup/inbox khi bắt đầu luồng liên service; chưa cần broker ở lát cắt mở shop. Không giả định giao thông điệp đúng một lần.
 
-## 6. PostgreSQL, MongoDB và Cloudinary
+## 6. PostgreSQL và Cloudinary
 
-- PostgreSQL là nguồn sự thật về đơn, tiền, kho, vận đơn và quyền mua hàng.
-- MongoDB lưu nội dung review/Q&A/reply. Feedback xác minh điều kiện đăng qua Commerce, không tự xem bản sao đơn là nguồn sự thật.
-- Điểm sao trung bình là projection có thể trễ/tính lại; sửa/ẩn review phải cập nhật thống kê. Không cần transaction phân tán PostgreSQL–MongoDB.
+- PostgreSQL lưu dữ liệu của mọi service, gồm đơn, tiền, kho, vận đơn và nội dung review/Q&A/reply. Feedback có database riêng; chỉ tạo khi triển khai M5.
+- Review, question, answer và seller reply dùng bảng quan hệ; nội dung là text, rating/khóa/trạng thái có cột và constraint rõ. JSONB chỉ dành cho metadata tùy chọn, không thay mô hình quan hệ chính.
+- Feedback xác minh điều kiện đăng qua Commerce, không tự xem bản sao đơn là nguồn sự thật. Không join/FK xuyên service dù cùng dùng PostgreSQL.
+- MVP tính điểm sao từ review đang hiển thị; sửa/ẩn review phải được phản ánh khi tính. Projection ở service khác có thể trễ và phải tính lại được; không cần transaction phân tán toàn sàn.
 - Cloudinary chứa ảnh; context sở hữu tài nguyên lưu `public_id`, metadata và tham chiếu đối tượng.
 - Backend kiểm soát quyền upload/gắn/xóa; secret không ra client. Dọn ảnh mồ côi có retry; không xóa ảnh còn tham chiếu hợp lệ.
 

@@ -24,7 +24,7 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "agora.grpc.enabled=false")
 @Import(MerchantApiTests.IdentityFixture.class)
 class MerchantApiTests {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(

@@ -1,6 +1,8 @@
 # Agora — Mô hình dữ liệu
 
-Trạng thái ngày 23/10/2026: Identity có migration V1–V3 cho schema/account/role/session. Merchant có V1 shop/audit/idempotency và V2 shop_reviews; create/edit/submit/review/resubmit đã triển khai và kiểm thử trên PostgreSQL riêng. Identity và Merchant tách service/database theo [ADR-0002](../decisions/0002-separate-identity-merchant.md).
+Trạng thái ngày 24/10/2026: Catalog đã có V1 product/SKU, V2 ảnh và V3 visibility trên fixture PostgreSQL; M2b2 đã có 144 fixture frontend PASS sau sửa revalidation, P2 fixed/review accepted, 4 normal live và 2 media/publication live mới PASS; M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation, final DRAFT/version 2 và HIDDEN/version 7, independent exact provider lookup 2 asset all_missing=true/exit 0; cleanup hai asset trước pause đã được main xác minh. Identity có migration V1–V3 cho schema/account/role/session. Merchant có V1 shop/audit/idempotency và V2 shop_reviews; create/edit/submit/review/resubmit đã triển khai và kiểm thử trên PostgreSQL riêng. Identity và Merchant tách service/database theo [ADR-0002](../decisions/0002-separate-identity-merchant.md).
+
+Toàn bộ service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md), gồm Feedback. Feedback ưu tiên bảng quan hệ, JSONB chỉ bổ sung metadata khi cần; địa chỉ và idempotency snapshot JSONB hiện có của Merchant giữ nguyên. Cloudinary tiếp tục giữ file ảnh.
 
 ## 1. Quy ước
 
@@ -38,6 +40,35 @@ Idempotency key được giữ tối thiểu 7 ngày cho thao tác mở/submit/r
 
 Session schema lấy từ phiên bản Spring Session JDBC thực tế, đặt schema identity, không tự sao chép SQL không khớp phiên bản. Flyway quản lý; không cho framework và Flyway cùng tự tạo một bảng.
 
+### Catalog M2a — sản phẩm nháp
+
+Catalog chạy database riêng `agora_catalog`, schema `catalog`; migration [V1__catalog_drafts.sql](../../services/catalog-service/src/main/resources/db/migration/V1__catalog_drafts.sql), [V2__product_images.sql](../../services/catalog-service/src/main/resources/db/migration/V2__product_images.sql) và [V3__product_visibility.sql](../../services/catalog-service/src/main/resources/db/migration/V3__product_visibility.sql). Database local đã tạo; Flyway chỉ áp dụng khi khởi động app vào database đó. Nghiệm thu dùng PostgreSQL Docker riêng, chưa áp dụng Catalog vào native database.
+
+| Bảng | Các trường/ràng buộc chính |
+|---|---|
+| catalog.products | id, shop_id, name, description, category, condition, origin, producer_name, storage_instructions, status DRAFT/PUBLISHED/HIDDEN qua V3, version, timestamps; unique id/shop_id; index shop_id/created_at/id |
+| catalog.skus | id, product_id, shop_id, code, label, price_vnd BIGINT, net_weight_grams, shipping_weight_grams, length_cm/width_cm/height_cm, sale_unit PACKAGE, position; unique shop_id/code và product_id/position; FK kép product_id/shop_id trong Catalog |
+| catalog.audit_entries | actor_account_id, shop_id, product_id, action, product_version, trace_id, created_at; FK product trong Catalog, append-only |
+| catalog.idempotency_records | actor_id, shop_id, operation, key, request_hash, state, http_status, response_snapshot JSONB, resource_id, created_at/expires_at; key theo actor/operation/key, hash bao gồm shop và resource; retention 7 ngày |
+
+Input SKU không nhận ID. PUT toàn bộ DRAFT/HIDDEN giữ ID của code không đổi, tạo ID cho code mới và xóa SKU bị bỏ. PUBLISHED phải ẩn trước sửa; sửa HIDDEN giữ HIDDEN. M2a chưa có inventory; trước khi mở tính năng lô, phải chặn xóa/đổi định danh SKU đang có tham chiếu, không cascade xóa lịch sử đơn/tồn.
+
+Product/SKU/audit/idempotency result commit cùng transaction; expectedVersion và unique constraint bảo vệ cạnh tranh. Shop ACTIVE được xác minh qua Merchant gRPC, account/CSRF qua Identity gRPC; không join/FK xuyên database. [Contract Catalog](../../contracts/openapi/catalog.v1.openapi.json) ghi giới hạn số nguyên VND, gram và cm cùng visibility; chưa có stock.
+
+### Catalog M2b1 — ảnh
+
+| Bảng | Các trường/ràng buộc chính |
+|---|---|
+| catalog.image_uploads | UUID, actor/shop/product/key/hash; public_id đúng namespace server cấp; PENDING/UPLOADED/DELETE_PENDING/DELETED; MIME/bytes/pixels; metadata provider đã xác minh; expires_at; unique actor/key và FK product/shop cục bộ |
+| catalog.product_images | upload_id/product_id/shop_id/position0–4; unique product/position, FK kép tới upload cùng product/shop |
+| catalog.media_requests | actor/key, shop/product, ATTACH_IMAGE/DETACH_IMAGE, hash/snapshotJSONB, retention7ngày; kết quả/audit/version/relation cùng transaction |
+
+Upload intent commit trước external I/O; retry trạng thái chưa rõ chỉ tra đúng reserved ID, không upload mù lần hai. Attach/detach chỉ chạm version product, không ghi lại SKU. Hết24giờ không gắn hoặc đã detach thì worker claim DELETE_PENDING trước network; chỉ DELETED sau provider xác nhận. Claim và attach khóa/kiểm tra trạng thái để không xóa ảnh còn gắn. File binary và filename không lưu trong PostgreSQL. Xem [contract media](../../contracts/openapi/catalog-media.v1.openapi.json).
+
+### Catalog M2b2 — visibility
+
+V3 chỉ mở rộng check status, giữ nguyên dữ liệu/khóa/FK/index của V1/V2. Công bố/ẩn dùng bảng idempotency/audit hiện có, operation `changeProductVisibility`; audit action `PUBLISH_PRODUCT`/`HIDE_PRODUCT`. Khóa product trước đọc ảnh relation UPLOADED, cập nhật status/version mà không ghi lại SKU. Public state không được nhận trong create/replace input; chỉ visibility endpoint nhận PUBLISHED/HIDDEN. DRAFT và HIDDEN sửa được, HIDDEN giữ trạng thái; PUBLISHED phải ẩn trước sửa hoặc quản lý ảnh. Migration test giữ SKU ID, image relation và completed snapshot DRAFT từ V2 sang V3.
+
 ## 3. Dữ liệu các service sau
 
 | Service | Aggregate/data chính | Bất biến cần giữ |
@@ -45,10 +76,26 @@ Session schema lấy từ phiên bản Spring Session JDBC thực tế, đặt s
 | Catalog | Product, SKU, InventoryLot, Reservation | Product thuộc shop; giữ toàn giỏ hoặc không; available = on_hand - held - allocated không âm; lô đủ hạn |
 | Commerce | Cart, Order, Cancellation, QualityClaim; Shipment trong Fulfillment | Một shop/đơn; snapshot; claim chặn hoàn tất; raw GHN và trạng thái nội bộ riêng |
 | Payment | PaymentAttempt, ProviderTransaction, Refund, LedgerEntry, Settlement | Unique provider transaction; tiền đã thu không mất vì hủy; tổng refund thành công + pending không vượt captured |
-| Feedback (MongoDB) | reviews, questions, answers/replies | Unique orderLineId cho review; quyền xác minh qua Commerce; moderation/audit; không embed cây phản hồi vô hạn |
+| Feedback (PostgreSQL) | Review, Question, Answer, SellerReply, moderation/audit | Unique order_line_id cho review; rating 1–5; quyền xác minh qua Commerce; FK cục bộ; phân trang nội dung riêng |
 
-Ảnh là tham chiếu Cloudinary public_id, loại, chủ sở hữu và trạng thái gắn đối tượng; file thực không nằm trong PostgreSQL/MongoDB. Một review gắn dòng đơn và tác giả; productId/shopId là tham chiếu, không yêu cầu transaction PostgreSQL–MongoDB.
+Ảnh là tham chiếu Cloudinary public_id, loại, chủ sở hữu và trạng thái gắn đối tượng; file thực nằm ở Cloudinary. Một review gắn dòng đơn và tác giả; productId/shopId/orderLineId là tham chiếu, không FK hoặc transaction xuyên service dù cùng dùng PostgreSQL.
+
+### Thiết kế Feedback trên PostgreSQL
+
+Database dự kiến `agora_feedback`, schema `feedback`. Các bảng dưới là thiết kế cho M5, chưa được tạo hoặc áp dụng migration:
+
+| Bảng | Nội dung và ràng buộc chính |
+|---|---|
+| feedback.reviews | UUID id, order_line_id UNIQUE, product_id, shop_id, author_account_id, rating SMALLINT CHECK 1–5, body TEXT, trạng thái hiển thị, version, created_at/updated_at; index truy vấn theo product/trạng thái/thời gian/id |
+| feedback.review_replies | FK review_id trong Feedback, actor_account_id, shop_id, body TEXT, trạng thái, version và timestamp; quyền trả lời đại diện shop xác minh qua Merchant |
+| feedback.questions | product_id, shop_id, author_account_id, body TEXT, trạng thái, version và timestamp; phân trang theo product/thời gian/id |
+| feedback.answers | FK question_id trong Feedback, actor_account_id, shop_id, body TEXT, trạng thái, version và timestamp; không tạo cây trả lời vô hạn |
+| feedback.audit_entries | Actor, đối tượng, hành động kiểm duyệt, lý do, trace ID và timestamp; append-only, không chứa credential |
+
+Các ID ngoài Feedback không có FK tới database service khác. Ảnh của từng loại nội dung có quan hệ/tham chiếu Cloudinary riêng khi triển khai UC-15; không nhúng binary. Không dùng JSONB thay cột rating, khóa duy nhất hoặc trạng thái nghiệp vụ.
+
+MVP ưu tiên tính count/sum/average từ review đang hiển thị để tránh projection trễ trong cùng Feedback; review ẩn không tính sao. Nếu thêm bảng thống kê sau này, cập nhật cùng transaction thay đổi review và có cách tính lại. Projection công khai ở Catalog vẫn có thể trễ khi đi qua hợp đồng/sự kiện liên service.
 
 Outbox/inbox thêm ở database context có sự kiện liên service khi cần. Sổ tiền append-only và có bút toán điều chỉnh; không sửa số dư bằng thao tác tay thay cho lịch sử giao dịch.
 
-Schema SQL/JSON cụ thể của Catalog/Order/Payment sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.
+Catalog có schema product/SKU, ảnh và visibility; schema lô/reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.

@@ -1,19 +1,19 @@
-# Agora — Kiến trúc hệ thống v0.2
+# Agora — Kiến trúc hệ thống v0.3
 
-Ngày: 2026-10-21. Đã bootstrap khung identity-service và datasource/Flyway; nghiệp vụ còn ở mức thiết kế. [ADR-0001](../decisions/0001-foundation.md) ghi nền tảng, [ADR-0002](../decisions/0002-separate-identity-merchant.md) chốt tách Identity/Merchant và database local.
+Ngày cập nhật: 2026-10-24. M1, Catalog M2a và ảnh Cloudinary M2b1 đã nghiệm thu local. M2b2 công bố/ẩn có backend/UI và proof trước pause (root verify 10:57:21 +07:00 ngày 24/10 đạt 133 tests); sau resume frontend build/lint/typecheck, 86 unit và 144 fixture production (19 regression revalidation mới) đã PASS. Hai asset trước pause exact lookup provider all_missing=true/exit 0; P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Nghiệm thu local không phải production hoặc CI run. Các service sau còn ở mức thiết kế. [ADR-0001](../decisions/0001-foundation.md) ghi nền tảng, [ADR-0002](../decisions/0002-separate-identity-merchant.md) chốt tách Identity/Merchant và [ADR-0003](../decisions/0003-postgresql-only.md) chốt PostgreSQL cho toàn bộ dữ liệu ứng dụng.
 
 ## 1. Đích kiến trúc và phần triển khai đầu tiên
 
 | Ứng dụng | Context | Dữ liệu sở hữu | Bắt đầu |
 |---|---|---|---|
-| identity-service | Identity/Access | PostgreSQL local agora; schema identity | Đã bootstrap |
-| merchant-service | Merchant | PostgreSQL agora_merchant, dự kiến | Sau Identity |
-| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog | Sau khi shop hoạt động |
+| identity-service | Identity/Access | PostgreSQL local agora; schema identity | Đã triển khai M1 |
+| merchant-service | Merchant | PostgreSQL agora_merchant; schema merchant | Đã triển khai M1 |
+| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1 đã nghiệm thu; P2 review accepted; 144 fixture/4 normal/2 media live PASS, M2b2 đã nghiệm thu local 24/10 khoảng 15:40 sau cleanup hai asset mới; chưa có inventory |
 | commerce-service | Commerce, Fulfillment, Notification | PostgreSQL agora_commerce | Sau catalog |
 | payment-service | Payment | PostgreSQL agora_payment | Thử sandbox sớm, tích hợp cùng checkout |
-| feedback-service | Feedback | MongoDB agora_feedback | Sau đơn giao thành công |
+| feedback-service | Feedback | PostgreSQL agora_feedback; schema feedback, dự kiến | Sau đơn giao thành công |
 
-Chạy chung instance PostgreSQL local nhưng dùng database/user riêng. Không join hoặc đọc bảng xuyên service. Context cùng process dùng interface module và giữ quyền sở hữu bảng.
+Tất cả service dùng PostgreSQL; có thể chạy chung instance local nhưng database thuộc từng service. Local đang dùng role postgres theo yêu cầu, deployment phải có role riêng và quyền tối thiểu. Không join hoặc đọc bảng xuyên service. Context cùng process dùng interface module và giữ quyền sở hữu bảng.
 
 Khởi tạo Identity trước rồi Merchant và web. Đích 6 service không buộc có 6 ứng dụng rỗng ngay. Local tái sử dụng PostgreSQL 16 có sẵn, không thay instance hoặc nâng cấp dữ liệu người dùng.
 
@@ -27,6 +27,8 @@ flowchart LR
     Edge --> Merchant[Merchant]
     Merchant -->|Xac minh danh tinh| Identity
     Edge --> Catalog[Catalog / Inventory]
+    Catalog -->|gRPC xac minh session / CSRF| Identity
+    Catalog -->|gRPC shop ACTIVE| Merchant
     Edge --> Commerce[Commerce / Fulfillment]
     Edge --> Payment[Payment]
     Edge --> Feedback[Feedback]
@@ -50,7 +52,7 @@ Web gọi HTTP/JSON cùng origin dưới /api/v1. gRPC dành cho backend, không
 - Mật khẩu dùng Argon2id qua PasswordEncoder; định dạng lưu có định danh encoder, tham số được benchmark khi triển khai. Không tự viết thuật toán.
 - USER và ADMIN là vai trò tài khoản. Quyền bán hàng suy ra từ sở hữu shop và trạng thái shop, không nhận role từ form đăng ký.
 - API admin/ownership được kiểm tra ở backend. Khóa tài khoản phải làm mất hiệu lực đăng nhập hiện có, không chỉ chặn lần login tiếp theo.
-- Khi service thứ hai cần xác thực, thêm hợp đồng gRPC kiểm tra session/CSRF với Identity; service khác không đọc bảng session. Lưu lượng nội bộ cần giới hạn truy cập và TLS khi deploy. Không giả định mạng nội bộ tự đáng tin.
+- Merchant đã dùng hợp đồng gRPC kiểm tra session/CSRF với Identity; service khác không đọc bảng session. Lưu lượng nội bộ cần giới hạn truy cập và TLS khi deploy. Không giả định mạng nội bộ tự đáng tin.
 - Cách xác thực tập trung này tăng phụ thuộc khả dụng vào Identity và thêm một lời gọi cho request được bảo vệ; chấp nhận cho portfolio. Identity không truy cập được thì từ chối an toàn, không bỏ kiểm tra.
 
 ## 4. Giao tiếp, giao dịch và phục hồi
@@ -63,10 +65,10 @@ Web gọi HTTP/JSON cùng origin dưới /api/v1. gRPC dành cho backend, không
 
 ## 5. Tích hợp ngoài và vận hành
 
-- Cloudinary: backend kiểm tra quyền upload/gắn/xóa; DB lưu public_id và metadata. Avatar/ảnh sản phẩm bổ sung sau lát cắt 1.
+- Cloudinary: Catalog proxy upload ảnh DRAFT/HIDDEN, xác minh metadata và lưu intent/relation riêng; gắn/gỡ tăng version product, cleanup chỉ xóa upload không còn tham chiếu. PUBLISHED cần ẩn trước sửa/đổi ảnh. BasicAuth chỉ dùng phía backend với host HTTPS cố định. Avatar bổ sung ở lát cắt Identity sau.
 - GHN: một điểm lấy hàng/shop, một kiện/đơn, không COD. Địa chỉ và liên kết ShopId staging phải được xác minh khi tích hợp; sandbox không kiểm chứng vận chuyển lạnh thực tế.
 - VNPAY: lưu attempt và tham chiếu độc lập với Order; có tra cứu/refund, xác minh tiền đến muộn và callback lặp.
-- Local hiện dùng PostgreSQL native 16, agora cho Identity; Docker/Compose có sẵn nhưng chưa cần thêm Postgres container. MongoDB/RabbitMQ bật khi cần. CI/build tự động làm sau, chưa tự deploy.
+- Local dùng PostgreSQL native 16: agora cho Identity, agora_merchant cho Merchant và agora_catalog cho Catalog. Database của service sau chỉ tạo khi triển khai. Không cần MongoDB; RabbitMQ bổ sung khi có luồng sự kiện cần dùng. Integration tests dùng PostgreSQL Docker biệt lập. Đã có workflow CI riêng hai repo; chưa xác nhận GitHub run hoặc deploy.
 - Log có traceId/correlationId, che cookie/password/token provider/chi tiết nhạy cảm. Health check không lộ cấu hình hoặc secret.
 
 ## 6. Phạm vi tiếp theo

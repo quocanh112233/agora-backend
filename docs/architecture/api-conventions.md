@@ -2,6 +2,8 @@
 
 Nguồn machine-readable: [OpenAPI 3.1 JSON](../../contracts/openapi/identity-merchant.v1.openapi.json). Bundle của hai service tách riêng; x-service xác định provider. Ngày 23/10/2026, cả 11 thao tác dưới đây đã triển khai, gồm account/session/CSRF và shop draft/submit/admin review/resubmit. OpenAPI vẫn giữ nguyên revision dùng chung với frontend; mô tả lịch sử trong snapshot không phải báo cáo tiến độ.
 
+Catalog M2a có artifact riêng [catalog.v1.openapi.json](../../contracts/openapi/catalog.v1.openapi.json) cho bốn thao tác seller product list/create/read/update. Không sửa artifact onboarding để thêm Catalog; phạm vi và quy tắc ở [kế hoạch M2a](../../tasks/slice-2-catalog.md) và [ranh giới Catalog](catalog-security.md).
+
 ## 1. Phạm vi và tuyến
 
 Base path /api/v1, JSON camelCase, enum UPPER_SNAKE_CASE, UUID và timestamp RFC3339. Web gọi cùng origin qua allowlisted rewrites; backend vẫn xác thực mọi request.
@@ -59,5 +61,7 @@ Identity/Merchant tách ứng dụng theo ADR-0002. Trước khi Merchant gọi 
 Hợp đồng [SessionIdentity v1](../../contracts/proto/agora/identity/v1/session_identity.proto) nhận `session_id`, `csrf_token`, `require_csrf`, trả `account_id` và `roles`. Merchant suy ra `require_csrf` từ HTTP method, không nhận quyết định này từ body của trình duyệt. Nguồn role/trạng thái account là Identity, ownership là Merchant; không trả email, password hoặc cookie trong response RPC.
 
 Caller gửi metadata `x-agora-internal-token`, cấu hình bằng `INTERSERVICE_TOKEN` ngẫu nhiên 32–256 ký tự URL-safe, không hardcode. Local listener bind `127.0.0.1:9091`; plaintext chỉ dành cho loopback. Trước khi chạy qua mạng/container riêng phải thiết kế TLS/mTLS, không chỉ mở rộng bind. Không dùng bảng session chung hoặc header X-User-Id tự khai từ browser. Client đặt deadline 2 giây cho từng call, không tự retry; UNAUTHENTICATED/PERMISSION_DENIED/UNAVAILABLE tương ứng HTTP 401/403/503.
+
+Catalog gọi Identity rồi [MerchantAccess.ResolveActiveShop](../../contracts/proto/agora/merchant/v1/merchant_access.proto) ở loopback 9092. Merchant chỉ trả shop_id đang ACTIVE thuộc account_id đã được caller xác minh qua Identity. Cùng metadata nội bộ, deadline 2 giây/call, không cache quyền hoặc bỏ kiểm tra khi replay. INVALID_ARGUMENT cho account ID sai; chưa có shop/shop không ACTIVE trả PERMISSION_DENIED; lỗi DB trả UNAVAILABLE. Chi tiết ranh giới và race giữa các service ở [catalog-security](catalog-security.md).
 
 Nguồn: [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0.html), [Spring Security CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html), [Spring Session JDBC](https://docs.spring.io/spring-session/reference/configuration/jdbc.html).

@@ -1,6 +1,6 @@
 # Agora — Cấu trúc thư mục
 
-Trạng thái: đã tạo root Maven, Wrapper và khung identity-service; những service khác và frontend chưa scaffold. backend/frontend là hai repo Git riêng. Không tạo repo thứ ba ở agora/ hoặc phụ thuộc filesystem của repo còn lại khi build.
+Trạng thái ngày 24/10/2026: Identity, Merchant, Catalog M2a và ảnh M2b1 đã nghiệm thu. M2b2 công bố/ẩn có backend/UI và gates trước pause, sau resume frontend build/lint/typecheck, 86 unit và 144 fixture (19 regression revalidation) đã PASS; hai asset trước pause provider lookup all_missing=true/exit 0. P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Chưa có production/CI run hoặc inventory. Commerce/Payment/Feedback là đích cho lát cắt sau. backend/frontend là hai repo Git riêng. Không tạo repo thứ ba ở agora/ hoặc phụ thuộc filesystem của repo còn lại khi build. Tất cả service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
 
 ## 1. Repo backend
 
@@ -10,11 +10,14 @@ backend/
 ├── mvnw, mvnw.cmd, .mvn/           # Maven Wrapper được ghim
 ├── services/
 │   ├── identity-service/           # Đã có
-│   ├── merchant-service/           # Dự kiến, tách riêng
-│   ├── catalog-service/
+│   ├── merchant-service/           # Đã có, tách riêng
+│   ├── catalog-service/            # Product/SKU, ảnh, visibility; chưa có inventory
 │   ├── commerce-service/
 │   ├── payment-service/
-│   └── feedback-service/
+│   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
+├── libraries/
+│   ├── identity-contract/          # Sinh Java/protobuf từ contract Identity
+│   └── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
 ├── contracts/
 │   ├── openapi/                    # Nguồn HTTP contract; JSON OpenAPI
 │   ├── proto/                      # Nguồn .proto khi có service cần giao tiếp
@@ -30,7 +33,7 @@ backend/
 └── .github/workflows/
 ```
 
-Chỉ identity-service được khai báo trong reactor hiện tại. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết.
+Reactor hiện có identity-contract, merchant-contract, identity-service, merchant-service và catalog-service. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Các đường dẫn service/infra còn lại trong cây là thiết kế, không mặc định đã tạo file hoặc database.
 
 ## 2. Một service theo DDD
 
@@ -41,7 +44,7 @@ services/identity-service/
     ├── main/
     │   ├── java/com/agora/identity/
     │   │   ├── IdentityApplication.java
-    │   │   ├── domain/             # Domain model sẽ được thêm khi làm account
+    │   │   ├── domain/             # Account và quy tắc nghiệp vụ
     │   │   ├── application/        # Use case/port
     │   │   ├── adapter/
     │   │   │   ├── inbound/        # HTTP/gRPC khi có chức năng
@@ -51,19 +54,19 @@ services/identity-service/
     │       ├── application.yaml
     │       └── db/migration/       # Flyway, service sở hữu migration
     └── test/java/com/agora/identity/
-        └── IdentityApplicationTests.java
+        └── IdentityApiTests.java  # Cùng các unit test domain/security
 ```
 
 - Domain chỉ dùng Java và abstraction nghiệp vụ; không import Spring/JPA/HTTP/SDK provider. Domain repository không extends JpaRepository.
 - Application phụ thuộc domain và port; không gọi thẳng controller hoặc persistence adapter.
-- Adapter inbound xác thực/parse request rồi gọi use case; adapter outbound hiện thực port, map domain với JPA/document entity.
+- Adapter inbound xác thực/parse request rồi gọi use case; adapter outbound hiện thực port, map domain với row PostgreSQL bằng JDBC. Feedback theo cùng cách, không có document repository/driver MongoDB.
 - JpaRepository, DTO HTTP, protobuf generated type và persistence entity không được dùng như domain model xuyên các lớp.
 - Main class ở package gốc; feature/module ở package bên dưới, không gom mọi controller/service/repository toàn ứng dụng.
 - Context cùng process gọi interface ứng dụng của nhau, không truy cập persistence của nhau. Annotation/framework được đặt ngoài domain.
 - Domain event là khái niệm nội bộ; integration event là hợp đồng đã map và có version, không serialize nguyên aggregate.
 - Chưa tạo thư viện common/domain dùng chung. Chỉ tách phần kỹ thuật đã có nhu cầu lặp rõ ràng.
 
-Identity và Merchant không còn cùng process. Merchant sẽ có cây DDD tương tự trong service riêng, gọi hợp đồng Identity để xác minh principal, không đọc database agora. Bootstrap hiện tại chưa có mã nghiệp vụ, Dockerfile hoặc RPC.
+Identity và Merchant là hai process/database độc lập. Merchant có cây DDD tương tự, gọi gRPC Identity để xác minh principal/CSRF, không đọc database agora. Chưa có Dockerfile hoặc service Feedback; khi triển khai Feedback, migration nằm trong resources/db/migration của chính service, database dự kiến agora_feedback.
 
 ## 3. Contracts và generated code
 
@@ -108,7 +111,7 @@ Next.js 16 App Router, TypeScript, npm; ghim patch cùng package-lock khi scaffo
 
 ## 5. Kiểm tra và cấu hình
 
-Hiện có smoke test khởi động context, kết nối database local và xác minh migration. Unit test domain, Testcontainers/ArchUnit và Playwright bổ sung khi triển khai nghiệp vụ/CI; chưa tuyên bố đã có các bộ kiểm thử này. Test fixture không chứa thông tin đăng nhập thật.
+Hiện có unit/integration tests, PostgreSQL Testcontainers và Playwright fixture/live cho M1; kết quả ở README hai repo. Feedback cũng dùng PostgreSQL Testcontainers khi triển khai; chưa có ArchUnit. Test fixture không chứa thông tin đăng nhập thật.
 
 .env.example chỉ có tên biến/giá trị minh họa; .env.local và secret không commit. Migration append-only sau khi đã áp dụng; schema không để ORM tự cập nhật trong môi trường demo deploy.
 

@@ -6,6 +6,8 @@ Accepted cho thiết kế MVP theo quyền tự quyết người dùng giao ngà
 
 Cập nhật: phần gộp Identity/Merchant và PostgreSQL local được thay thế bởi [ADR-0002](0002-separate-identity-merchant.md). Nội dung dưới đây giữ lại như lịch sử quyết định ban đầu.
 
+Cập nhật 23/10/2026: lựa chọn MongoDB cho Feedback được thay thế bởi [ADR-0003 — chỉ dùng PostgreSQL](0003-postgresql-only.md). Nội dung quyết định ban đầu bên dưới không phải cấu hình persistence hiện hành.
+
 ## Bối cảnh
 
 Solo portfolio, hai repo backend/frontend đã có, nghiệp vụ marketplace nông sản/thủy hải sản. Cần thể hiện microservice/DDD nhưng vẫn hoàn thành được luồng giao dịch. Mục tiêu gần nhất là đăng ký, login, tạo/gửi duyệt shop và admin duyệt.

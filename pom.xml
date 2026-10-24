@@ -20,8 +20,10 @@
 
     <modules>
         <module>libraries/identity-contract</module>
+        <module>libraries/merchant-contract</module>
         <module>services/identity-service</module>
         <module>services/merchant-service</module>
+        <module>services/catalog-service</module>
     </modules>
 
     <properties>

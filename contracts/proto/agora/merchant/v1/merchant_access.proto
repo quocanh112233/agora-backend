@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package agora.merchant.v1;
+option java_package = "com.agora.contracts.merchant.v1";
+option java_multiple_files = true;
+
+// Internal loopback transport; caller must authenticate the account through Identity first.
+service MerchantAccess {
+  rpc ResolveActiveShop(ResolveActiveShopRequest) returns (ResolveActiveShopResponse);
+}
+
+message ResolveActiveShopRequest { string account_id = 1; }
+message ResolveActiveShopResponse { string shop_id = 1; }

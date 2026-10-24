@@ -27,6 +27,10 @@ server:
 agora:
   identity:
     token: ${INTERSERVICE_TOKEN:}
+  grpc:
+    enabled: ${MERCHANT_GRPC_ENABLED:false}
+    port: ${MERCHANT_GRPC_PORT:9092}
+    token: ${INTERSERVICE_TOKEN:}
 
 management:
   endpoints:
