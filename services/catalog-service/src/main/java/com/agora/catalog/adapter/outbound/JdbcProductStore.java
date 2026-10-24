@@ -85,14 +85,24 @@ public class JdbcProductStore implements ProductStore {
         insertSkus(product);
     }
     @Override public void update(Product product, long expectedVersion) {
+        var referenced = jdbc.query("SELECT DISTINCT s.* FROM catalog.skus s JOIN catalog.inventory_lots l ON l.sku_id=s.id WHERE s.product_id=?",
+                (r,i) -> new Product.Sku(r.getObject("id",UUID.class),r.getString("code"),r.getString("label"),r.getLong("price_vnd"),r.getInt("net_weight_grams"),r.getInt("shipping_weight_grams"),r.getInt("length_cm"),r.getInt("width_cm"),r.getInt("height_cm"),r.getString("sale_unit")),product.id());
+        for(var previous:referenced){
+            var changed=product.skus().stream().filter(sku->sku.id().equals(previous.id())).findFirst();
+            if(changed.isEmpty() || changed.get().netWeightGrams()!=previous.netWeightGrams() || changed.get().shippingWeightGrams()!=previous.shippingWeightGrams()
+                    || changed.get().lengthCm()!=previous.lengthCm() || changed.get().widthCm()!=previous.widthCm() || changed.get().heightCm()!=previous.heightCm()
+                    || !changed.get().saleUnit().equals(previous.saleUnit()))
+                throw new CatalogFailure(409,"SKU_HAS_INVENTORY","A SKU with lot history cannot be removed or repacked.");
+        }
         int changed = jdbc.update("""
                 UPDATE catalog.products SET name=?,description=?,category=?,condition=?,origin=?,producer_name=?,storage_instructions=?,version=?,updated_at=?
                 WHERE id=? AND shop_id=? AND version=? AND status IN ('DRAFT','HIDDEN')
                 """, product.name(), product.description(), product.category(), product.condition(), product.origin(), product.producerName(),
                 product.storageInstructions(), product.version(), Timestamp.from(product.updatedAt()), product.id(), product.shopId(), expectedVersion);
         if (changed != 1) throw new CatalogFailure(409, "STALE_VERSION", "Product version has changed.");
-        // shortcut: drafts have no inventory references; retain SKU rows when inventory introduces foreign keys.
-        jdbc.update("DELETE FROM catalog.skus WHERE product_id=?", product.id());
+        var retained=product.skus().stream().map(Product.Sku::id).toList();
+        jdbc.queryForList("SELECT id FROM catalog.skus WHERE product_id=?",UUID.class,product.id()).stream()
+                .filter(id->!retained.contains(id)).forEach(id->jdbc.update("DELETE FROM catalog.skus WHERE id=?",id));
         insertSkus(product);
     }
     private void insertSkus(Product product) {
@@ -101,6 +111,9 @@ public class JdbcProductStore implements ProductStore {
             jdbc.update("""
                     INSERT INTO catalog.skus(id,product_id,shop_id,code,label,price_vnd,net_weight_grams,shipping_weight_grams,length_cm,width_cm,height_cm,sale_unit,position)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,price_vnd=EXCLUDED.price_vnd,
+                    net_weight_grams=EXCLUDED.net_weight_grams,shipping_weight_grams=EXCLUDED.shipping_weight_grams,
+                    length_cm=EXCLUDED.length_cm,width_cm=EXCLUDED.width_cm,height_cm=EXCLUDED.height_cm,position=EXCLUDED.position
                     """, sku.id(), product.id(), product.shopId(), sku.code(), sku.label(), sku.priceVnd(), sku.netWeightGrams(),
                     sku.shippingWeightGrams(), sku.lengthCm(), sku.widthCm(), sku.heightCm(), sku.saleUnit(), position);
         }

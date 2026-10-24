@@ -51,9 +51,9 @@ Catalog chạy database riêng `agora_catalog`, schema `catalog`; migration [V1_
 | catalog.audit_entries | actor_account_id, shop_id, product_id, action, product_version, trace_id, created_at; FK product trong Catalog, append-only |
 | catalog.idempotency_records | actor_id, shop_id, operation, key, request_hash, state, http_status, response_snapshot JSONB, resource_id, created_at/expires_at; key theo actor/operation/key, hash bao gồm shop và resource; retention 7 ngày |
 
-Input SKU không nhận ID. PUT toàn bộ DRAFT/HIDDEN giữ ID của code không đổi, tạo ID cho code mới và xóa SKU bị bỏ. PUBLISHED phải ẩn trước sửa; sửa HIDDEN giữ HIDDEN. M2a chưa có inventory; trước khi mở tính năng lô, phải chặn xóa/đổi định danh SKU đang có tham chiếu, không cascade xóa lịch sử đơn/tồn.
+Input SKU không nhận ID. PUT toàn bộ DRAFT/HIDDEN giữ ID của code không đổi, tạo ID cho code mới và xóa SKU bị bỏ. PUBLISHED phải ẩn trước sửa; sửa HIDDEN giữ HIDDEN. V4 đã thêm FK lịch sử lô: SKU từng có lô không được xóa/đổi code hoặc net/shipping weight/dimensions/saleUnit. Label/price/reorder vẫn thay đổi được và giữ ID; upsert tại chỗ, không cascade lịch sử.
 
-Product/SKU/audit/idempotency result commit cùng transaction; expectedVersion và unique constraint bảo vệ cạnh tranh. Shop ACTIVE được xác minh qua Merchant gRPC, account/CSRF qua Identity gRPC; không join/FK xuyên database. [Contract Catalog](../../contracts/openapi/catalog.v1.openapi.json) ghi giới hạn số nguyên VND, gram và cm cùng visibility; chưa có stock.
+Product/SKU/audit/idempotency result commit cùng transaction; expectedVersion và unique constraint bảo vệ cạnh tranh. Shop ACTIVE được xác minh qua Merchant gRPC, account/CSRF qua Identity gRPC; không join/FK xuyên database. [Contract Catalog](../../contracts/openapi/catalog.v1.openapi.json) ghi giới hạn số nguyên VND, gram và cm cùng visibility; lô có contract inventory riêng.
 
 ### Catalog M2b1 — ảnh
 
@@ -68,6 +68,20 @@ Upload intent commit trước external I/O; retry trạng thái chưa rõ chỉ 
 ### Catalog M2b2 — visibility
 
 V3 chỉ mở rộng check status, giữ nguyên dữ liệu/khóa/FK/index của V1/V2. Công bố/ẩn dùng bảng idempotency/audit hiện có, operation `changeProductVisibility`; audit action `PUBLISH_PRODUCT`/`HIDE_PRODUCT`. Khóa product trước đọc ảnh relation UPLOADED, cập nhật status/version mà không ghi lại SKU. Public state không được nhận trong create/replace input; chỉ visibility endpoint nhận PUBLISHED/HIDDEN. DRAFT và HIDDEN sửa được, HIDDEN giữ trạng thái; PUBLISHED phải ẩn trước sửa hoặc quản lý ảnh. Migration test giữ SKU ID, image relation và completed snapshot DRAFT từ V2 sang V3.
+
+### Catalog M2c1 — lô hàng qua V4
+
+[V4](../../services/catalog-service/src/main/resources/db/migration/V4__inventory_lots.sql) bổ sung:
+
+| Bảng | Dữ liệu và invariant |
+| --- | --- |
+| catalog.inventory_lots | id/product_id/shop_id/sku_id, code unique theoSKU, produced_on tùy chọn/expires_on bắt buộc, on_hand/held/allocated, stored state ACTIVE/BLOCKED, version/timestamps; FK triple tới SKU, không cascade |
+| catalog.inventory_requests | actor/operation/key unique, product/shop/hash, IN_PROGRESS/COMPLETED, status/snapshot/lot_id, expiry7ngày; completed FK tới lot |
+| catalog.inventory_audit | actor/lot/product/shop/action/quantity_delta/lot_version/trace_id/timestamp; FK triple tới lot; nhập có delta dương, khóa/mở delta0 |
+
+Các bộ đếm nguyên0–1.000.000gói, held+allocated<=onHand. M2c1 chưa có giữ/phân bổ nên hai bộ đếm này bằng0. Ngày hiện tại dùng Clock Asia/Ho_Chi_Minh; trạng thái response tính BLOCKED trước EXPIRED (expires_on<=hôm nay), DEPLETED nếu available0, còn lại ACTIVE. available là phép trừ vật lý, không bảo đảm checkout.
+
+FK SKU bổ sung UNIQUE(id,product_id,shop_id); unique(product_id,position) DEFERRABLE INITIALLY DEFERRED cho reorder trong transaction. Tạo lô và sửa Product dùng cùng parent row lock; guard giữ SKU đã có lô bất kể state/hạn dùng. Requests cố ý không lấy FK parent lúc claim để tránh key-share upgrade deadlock giữa hai create; service xác minh owned product trước claim, lock trước kiểm SKU, completion tham chiếu lot. Lot/audit/result rollback cùng nhau. [Contract](../../contracts/openapi/catalog-inventory.v1.openapi.json), [demo](../demo-inventory.md).
 
 ## 3. Dữ liệu các service sau
 
@@ -98,4 +112,4 @@ MVP ưu tiên tính count/sum/average từ review đang hiển thị để trán
 
 Outbox/inbox thêm ở database context có sự kiện liên service khi cần. Sổ tiền append-only và có bút toán điều chỉnh; không sửa số dư bằng thao tác tay thay cho lịch sử giao dịch.
 
-Catalog có schema product/SKU, ảnh và visibility; schema lô/reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.
+Catalog có schema product/SKU, ảnh, visibility và lô qua V4; schema reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.

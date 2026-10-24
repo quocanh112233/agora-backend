@@ -1,6 +1,6 @@
 # Agora — Cấu trúc thư mục
 
-Trạng thái ngày 24/10/2026: Identity, Merchant, Catalog M2a và ảnh M2b1 đã nghiệm thu. M2b2 công bố/ẩn có backend/UI và gates trước pause, sau resume frontend build/lint/typecheck, 86 unit và 144 fixture (19 regression revalidation) đã PASS; hai asset trước pause provider lookup all_missing=true/exit 0. P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Chưa có production/CI run hoặc inventory. Commerce/Payment/Feedback là đích cho lát cắt sau. backend/frontend là hai repo Git riêng. Không tạo repo thứ ba ở agora/ hoặc phụ thuộc filesystem của repo còn lại khi build. Tất cả service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
+Trạng thái ngày 24/10/2026: Identity, Merchant, Catalog M2a và ảnh M2b1 đã nghiệm thu. M2b2 công bố/ẩn có backend/UI và gates trước pause, sau resume frontend build/lint/typecheck, 86 unit và 144 fixture (19 regression revalidation) đã PASS; hai asset trước pause provider lookup all_missing=true/exit 0. P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Chưa có production/CI run. M2c1 đã thêm quản lý lô hàng trong Catalog. Commerce/Payment/Feedback là đích cho lát cắt sau. backend/frontend là hai repo Git riêng. Không tạo repo thứ ba ở agora/ hoặc phụ thuộc filesystem của repo còn lại khi build. Tất cả service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
 
 ## 1. Repo backend
 
@@ -11,7 +11,7 @@ backend/
 ├── services/
 │   ├── identity-service/           # Đã có
 │   ├── merchant-service/           # Đã có, tách riêng
-│   ├── catalog-service/            # Product/SKU, ảnh, visibility; chưa có inventory
+│   ├── catalog-service/            # Product/SKU, ảnh, visibility và lô M2c1
 │   ├── commerce-service/
 │   ├── payment-service/
 │   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
@@ -118,3 +118,9 @@ Hiện có unit/integration tests, PostgreSQL Testcontainers và Playwright fixt
 Từ backend chạy ./mvnw verify để build/test, hoặc ./mvnw -pl services/identity-service spring-boot:run. Test và plugin run dùng cwd repo backend để Spring đọc .env tự động; chạy từ repo root, không từ thư mục service. Xem [README](../../README.md) và [plan](../../tasks/plan.md).
 
 Nguồn: [Spring Boot structure](https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html), [Maven reactor](https://maven.apache.org/guides/mini/guide-multiple-modules.html), [Next.js structure](https://nextjs.org/docs/app/getting-started/project-structure).
+
+## M2c1 — thành phần đã triển khai
+
+Catalog thêm `domain/InventoryLot`, `application/InventoryStore`/`InventoryService`, `adapter/inbound/InventoryController`, `adapter/outbound/JdbcInventoryStore`, `configuration/InventoryConfiguration` và migration `V4__inventory_lots.sql`. ProductService/JdbcProductStore giữ khóa product và upsert SKU thay vì xóa toàn bộ. Test `InventoryLotTests`/`InventoryApiTests` có17ca mới trong root150tests; không tạo module hay dependency mới.
+
+Contract riêng `contracts/openapi/catalog-inventory.v1.openapi.json`; frontend ghim snapshot/type, route `/seller/products/[productId]/lots`, feature `catalog-inventory`, fixtures và live spec. [Demo](../demo-inventory.md) và [proof](../../../frontend/docs/catalog-inventory-proof.md) ghi177fixture/98unit/5live cùng giới hạn nghiệm thu local.

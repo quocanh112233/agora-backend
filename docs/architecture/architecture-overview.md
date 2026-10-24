@@ -8,7 +8,7 @@ Ngày cập nhật: 2026-10-24. M1, Catalog M2a và ảnh Cloudinary M2b1 đã n
 |---|---|---|---|
 | identity-service | Identity/Access | PostgreSQL local agora; schema identity | Đã triển khai M1 |
 | merchant-service | Merchant | PostgreSQL agora_merchant; schema merchant | Đã triển khai M1 |
-| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1 đã nghiệm thu; P2 review accepted; 144 fixture/4 normal/2 media live PASS, M2b2 đã nghiệm thu local 24/10 khoảng 15:40 sau cleanup hai asset mới; chưa có inventory |
+| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1 đã nghiệm thu; P2 review accepted; 144 fixture/4 normal/2 media live PASS, M2b2 đã nghiệm thu local 24/10 khoảng 15:40 sau cleanup hai asset mới; M2c1 đã có nhập lô/khóa/mở; reservation chưa triển khai |
 | commerce-service | Commerce, Fulfillment, Notification | PostgreSQL agora_commerce | Sau catalog |
 | payment-service | Payment | PostgreSQL agora_payment | Thử sandbox sớm, tích hợp cùng checkout |
 | feedback-service | Feedback | PostgreSQL agora_feedback; schema feedback, dự kiến | Sau đơn giao thành công |
@@ -82,3 +82,9 @@ Web gọi HTTP/JSON cùng origin dưới /api/v1. gRPC dành cho backend, không
 - [Spring Security CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html)
 - [Spring Security password storage](https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html)
 - [Next.js rewrites](https://nextjs.org/docs/app/api-reference/config/next-config-js/rewrites)
+
+## M2c1 — Inventory trong Catalog
+
+M2c1 quản lý lô hàng đã nghiệm thu local ngày24/10/2026 sau resume20:23: backend150 tests (16:03:17, source không đổi), frontend98 unit,177 browser fixture production và5 live qua ba service đều đạt; build/lint/typecheck đạt, review cuối không còn blocker trong phạm vi sửa. Chưa có reservation/FEFO allocation, storefront hoặc checkout.
+
+InventoryLot dùng cùng database Catalog, không thêm service hoặc broker. Tạo lô và replace Product khóa cùng product row trước kiểm SKU; FK cùng product/shop/SKU và upsert giữ lịch sử. Lô có version riêng; lot/audit/idempotency result commit cùng transaction. Trạng thái hết hạn được tính theo ngày Việt Nam trên request, không dựa scheduler. Claim/replay xảy ra trước kiểm tra thời gian hiện tại; replay là snapshot lịch sử, GET mới quyết định trạng thái hiển thị. Xem [data model](data-model.md), [quyền](catalog-security.md) và [demo](../demo-inventory.md).

@@ -24,7 +24,7 @@ Ràng buộc PostgreSQL bảo vệ code SKU duy nhất trong shop và điều ki
 
 Idempotency key UUID thuộc actor/operation và payload/resource đã băm, giữ 7 ngày. Cùng key/payload replay snapshot gốc sau xác minh quyền hiện tại; đổi payload trả 422, in-flight trả 409. Client giữ key cho đến khi nhận response thành công có cấu trúc hợp lệ, không tự retry mutation.
 
-PUT nội dung là thay toàn bộ thông tin DRAFT hoặc HIDDEN và danh sách SKU; sửa HIDDEN giữ HIDDEN. Code giữ nguyên thì giữ ID; bỏ/đổi code có thể xóa/tạo SKU ở lát cắt chưa có inventory. Trước khi thêm lô phải chặn xóa/đổi SKU đang được tham chiếu; không dùng quy tắc chỉnh sửa hiện tại để xóa tồn hoặc lịch sử đơn về sau.
+PUT nội dung là thay toàn bộ thông tin DRAFT hoặc HIDDEN và danh sách SKU; sửa HIDDEN giữ HIDDEN. Code giữ nguyên thì giữ ID; V4 chặn xóa/đổi code hoặc quy cách vật lý của SKU từng có lô. Chỉ xóa SKU không được tham chiếu; label/price/reorder dùng upsert tại chỗ và giữ lịch sử. Cùng product row lock bảo vệ race nhập lô/sửa SKU.
 
 ## Kiểm chứng và credential
 
@@ -57,3 +57,11 @@ Root Maven verify 22:16 đạt 82 tests (13 Identity, 44 Merchant, 25 Catalog), 
 Probe đã chứng minh: owner khác read/update trả 404; anonymous 401, shop chưa ACTIVE 403, CSRF sai 403; create/PUT replay đúng snapshot và không tăng số bản ghi; SKU id ổn định; stale version 409, payload đổi 422, code SKU trùng 409. Product version/SKU/audit/key counts giữ nguyên khi thao tác bị từ chối. Sau khi suspend đúng shop/account fixture, read và replay lần lượt bị chặn 403/401 ngay; khôi phục fixture và đọc lại thành công.
 
 Đây là bằng chứng local, không dùng PostgreSQL native và không chứng minh TLS/ingress production, Cloudinary upload hoặc luồng mua hàng. Bộ browser fixture/live UI được ghi trong proof frontend, không gộp vào các test backend trên.
+
+## Inventory M2c1
+
+Ba operation lô riêng theo [contract](../../contracts/openapi/catalog-inventory.v1.openapi.json) giữ current Identity/Merchant/CSRF checks trước cả read/replay; không nhận shop/actor/counters từ client. JSON tối đa2048bytes, duplicate/trailing/empty/malformed400, UUID/input/date/payload422, cross-owner/parent/SKU404, version/state/inflight409 và dependency503; private/no-store, lỗi an toàn.
+
+Hash bind productId+lotId+body. Claim/replay trước kiểm expiry/state/version động để retry qua nửa đêm trả snapshot gốc, không nhập/phân bổ hai lần. Snapshot không phải quyết định bán hàng; UI phải GET trạng thái mới. Khóa/mở không đổi bộ đếm; lô hết hạn không mở lại. Lot/audit/key commit cùng transaction, constraint không âm/không vượt tồn và FK triple không cascade. Root150tests16:03:17 gồm11API/6domain mới, kiểm concurrent key/race SKU, rollback audit, midnight replay/GET expiry, SQL bounds và migrationV3→V4.
+
+Review frontend đã sửa việc lỗi GET đầu che denial của GET thứ hai và select tự đổi sang SKU khác sau refresh. Mỗi GET quan sát denial riêng; lựa chọn SKU mất phải chọn lại rõ ràng, giữ các field khác. Focus error server dùng effect sau commit, còn validation local focus field. Bằng chứng runtime177fixture/98unit/5live ở [proof](../../../frontend/docs/catalog-inventory-proof.md). Chưa có reservation/storefront/checkout hoặc proof production.

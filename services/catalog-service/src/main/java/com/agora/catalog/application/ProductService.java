@@ -33,7 +33,9 @@ public class ProductService {
     public Result replace(Key key, UUID id, long expectedVersion, Product.Input input, String traceId) {
         var replay = store.claim(key);
         if (replay.isPresent()) return replay.get();
-        Product changed = owned(key.shopId(), id).replace(expectedVersion, input);
+        Product current = store.lockOwned(key.shopId(), id).orElseThrow(() ->
+                new CatalogFailure(404, "PRODUCT_NOT_FOUND", "Product was not found."));
+        Product changed = current.replace(expectedVersion, input);
         store.update(changed, expectedVersion);
         store.audit(changed, key.actor(), "UPDATE_PRODUCT", traceId);
         Result result = new Result(200, changed);
