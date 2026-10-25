@@ -7,6 +7,7 @@ import com.agora.merchant.domain.MerchantFailure;
 import com.agora.merchant.domain.Shop;
 import com.agora.merchant.domain.Shop.Address;
 import com.agora.merchant.domain.Shop.Patch;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,10 +15,21 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ShopService {
     public record Create(String name, String description, String contactPhone, Address pickupAddress) {}
+    public record PublicShop(UUID id, String name) {}
     private final MerchantStore store;
     public ShopService(MerchantStore store) { this.store = store; }
 
     public Shop mine(UUID owner) { return owned(owner, null); }
+    public List<PublicShop> findPublicShops(List<UUID> ids) {
+        return ids.stream().flatMap(id -> store.find(id).stream())
+                .filter(shop -> "ACTIVE".equals(shop.status()))
+                .map(shop -> {
+                    String name = shop.name();
+                    if (name == null || name.codePointCount(0, name.length()) > 120)
+                        throw new IllegalStateException("Invalid public shop name.");
+                    return new PublicShop(shop.id(), name);
+                }).filter(shop -> !shop.name().isBlank()).toList();
+    }
     private Shop owned(UUID owner, UUID shopId) {
         return store.owned(owner, shopId).orElseThrow(() ->
                 new MerchantFailure(404, "SHOP_NOT_FOUND", "Shop was not found."));

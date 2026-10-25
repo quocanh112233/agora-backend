@@ -1,6 +1,6 @@
 # Catalog — Ranh giới bảo mật và dữ liệu
 
-M2a quản lý sản phẩm/SKU theo [kế hoạch](../../tasks/slice-2-catalog.md) và [OpenAPI](../../contracts/openapi/catalog.v1.openapi.json). M2b1 bổ sung ảnh qua [contract riêng](../../contracts/openapi/catalog-media.v1.openapi.json), M2b2 bổ sung công bố/ẩn qua visibility endpoint; không thêm URL/public ID vào Product input. Chưa có endpoint mua hàng hoặc storefront. Kết quả backend và UI/live ghi riêng để phân biệt giới hạn bằng chứng.
+M2a quản lý sản phẩm/SKU theo [kế hoạch](../../tasks/slice-2-catalog.md) và [OpenAPI](../../contracts/openapi/catalog.v1.openapi.json). M2b1 bổ sung ảnh qua [contract riêng](../../contracts/openapi/catalog-media.v1.openapi.json), M2b2 bổ sung công bố/ẩn qua visibility endpoint; không thêm URL/public ID vào Product input. M2c2 đã triển khai hai GET browse/detail public, đã nghiệm thu local ngày 25/10/2026; chưa có endpoint mua hàng. Kết quả backend và UI/live ghi riêng để phân biệt giới hạn bằng chứng.
 
 ## Danh tính và quyền shop
 
@@ -8,7 +8,7 @@ Trình duyệt gửi cookie AGORA_SESSION và masked CSRF qua Next rewrite cùng
 
 Mỗi request seller, kể cả read và idempotency replay, phải đi qua hai kiểm tra này. Shop chưa duyệt/bị đình chỉ và account không còn hợp lệ phải bị từ chối. Không đọc session/merchant tables từ Catalog. Product của shop khác trả 404, không trả snapshot replay hoặc dữ liệu riêng.
 
-Đây là hai lời gọi đồng bộ trước transaction Catalog, không phải transaction khóa xuyên service. Nếu shop đổi trạng thái sau lúc xác minh, thao tác đang chạy có thể hoàn tất; request tiếp theo phải đọc trạng thái mới. Visibility cũng xác minh quyền tại request, không cấp quyền checkout. Storefront/checkout về sau phải xác minh lại shop/product hiện tại thay vì chỉ tin status đã lưu.
+Đây là hai lời gọi đồng bộ trước transaction Catalog, không phải transaction khóa xuyên service. Nếu shop đổi trạng thái sau lúc xác minh, thao tác đang chạy có thể hoàn tất; request tiếp theo phải đọc trạng thái mới. Visibility cũng xác minh quyền tại request, không cấp quyền checkout. Storefront kiểm shop hiện tại qua FindPublicShops; checkout sau này phải có policy riêng thay vì chỉ tin status hoặc boolean tồn đã đọc.
 
 ## Transport và lỗi
 
@@ -64,4 +64,29 @@ Ba operation lô riêng theo [contract](../../contracts/openapi/catalog-inventor
 
 Hash bind productId+lotId+body. Claim/replay trước kiểm expiry/state/version động để retry qua nửa đêm trả snapshot gốc, không nhập/phân bổ hai lần. Snapshot không phải quyết định bán hàng; UI phải GET trạng thái mới. Khóa/mở không đổi bộ đếm; lô hết hạn không mở lại. Lot/audit/key commit cùng transaction, constraint không âm/không vượt tồn và FK triple không cascade. Root150tests16:03:17 gồm11API/6domain mới, kiểm concurrent key/race SKU, rollback audit, midnight replay/GET expiry, SQL bounds và migrationV3→V4.
 
-Review frontend đã sửa việc lỗi GET đầu che denial của GET thứ hai và select tự đổi sang SKU khác sau refresh. Mỗi GET quan sát denial riêng; lựa chọn SKU mất phải chọn lại rõ ràng, giữ các field khác. Focus error server dùng effect sau commit, còn validation local focus field. Bằng chứng runtime177fixture/98unit/5live ở [proof](../../../frontend/docs/catalog-inventory-proof.md). Chưa có reservation/storefront/checkout hoặc proof production.
+Review frontend đã sửa việc lỗi GET đầu che denial của GET thứ hai và select tự đổi sang SKU khác sau refresh. Mỗi GET quan sát denial riêng; lựa chọn SKU mất phải chọn lại rõ ràng, giữ các field khác. Focus error server dùng effect sau commit, còn validation local focus field. Bằng chứng runtime177fixture/98unit/5live ở [proof](../../../frontend/docs/catalog-inventory-proof.md) là M2c1, không thay proof storefront. Chưa có reservation/checkout hoặc proof production.
+
+## Storefront M2c2 — public projection
+
+Theo [contract riêng](../../contracts/openapi/catalog-storefront.v1.openapi.json), chỉ GET `/api/v1/products` và GET `/api/v1/products/{productId}` là public. Không cần cookie/CSRF, không gọi Identity; cookie sai không làm read này thành seller authorization. Response `Cache-Control: no-store`. Chỉ lấy PUBLISHED có relation tới ảnh UPLOADED cùng product/shop và shop hiện ACTIVE. HIDDEN/DRAFT, thiếu ảnh hoặc shop không khả dụng không được trả public; detail trả404. Không lọc bỏ sản phẩm hết tồn.
+
+Allowlist JSON thành công:
+
+| Projection | Các trường duy nhất |
+| --- | --- |
+| Page | `items`, `nextCursor` |
+| Card | `id`, `name`, `category`, `condition`, `origin`, `shop`, `inStock`, `minPriceVnd`, `thumbnail` |
+| Detail | `id`, `name`, `category`, `condition`, `origin`, `shop`, `inStock`, `description`, `producerName`, `storageInstructions`, `skus`, `images` |
+| Shop | `id`, `name` |
+| SKU | `id`, `label`, `priceVnd`, `netWeightGrams`, `saleUnit`, `inStock` |
+| Image/thumbnail | `url`, `width`, `height` |
+
+Không serialize Product/Shop/lot/upload private vào public response. Không trả `ownerAccountId`, `actorAccountId`, `contactPhone`, `pickupAddress`, shop `description`/`status`/`lastReviewReason`; product/shop/lot `version`, `createdAt`, `updatedAt` hoặc audit/idempotency snapshots. SKU không trả `code`, `shippingWeightGrams`, `lengthCm`, `widthCm`, `heightCm`. Không trả lot ID/code, `producedOn`, `expiresOn`, `onHand`, `held`, `allocated`, `available`, trạng thái lô hoặc exact count. Không trả upload intent/ID, `publicId`, key/hash, trạng thái/expiry upload hoặc provider credential. URL ảnh public là URL đã xác minh; không thêm các trường metadata private vào JSON. Cursor opaque chứa mốc candidate, không phải quyền truy cập hay tổng số kết quả.
+
+`inStock` trên product/card là tồn tại lô đủ điều kiện; trên SKU chỉ xét lô của SKU đó: stored state ACTIVE, expires_on>ngày hiện tại Asia/Ho_Chi_Minh, on_hand-held-allocated>0. Không giữ hàng, không khẳng định mua/giao được, đủ thời gian sử dụng hoặc an toàn thực phẩm. `minPriceVnd` là min mọi SKU, kể cả SKU hết tồn.
+
+Browse sort created_at DESC,id DESC, SQL đọc tối đa21candidate và chỉ xét20đầu. Merchant lookup tối đa4batch×5ID khác nhau, không lookup candidate thứ21. `nextCursor` lấy candidate cuối đã xét khi còn lookahead; sau lọc shop có thể còn0items nhưng cursor vẫn khác null. Không total count/OFFSET hoặc quét bù toàn bộ shop. Cursor tối đa256ký tự base64url, bind normalized filters; không giữ snapshot xuyên request. Unknown/duplicate/malformed query, UUID hoặc cursor sai/cross-filter trả422; tên/xuất xứ tìm literal contains, escape SQL wildcard.
+
+`MerchantAccess.FindPublicShops` chỉ nhận1–5UUID khác nhau, giữ token nội bộ/loopback/4KiB. Chỉ trả `{id,name}` cho shop ACTIVE hiện tại, không cache status. Tên tối đa120codepoints giữ nguyên; tên legacy chỉ khoảng trắng bị omit, tên null/quá giới hạn là lỗi. Catalog kiểm subset/unique/shape/name; RPC down/timeout/malformed hoặc một batch sau lỗi làm cả request503, không trả page một phần. Deadline2giây/call, không retry. Public không suy ra trạng thái account owner từ shop ACTIVE; account bị khóa không tự đổi status shop.
+
+Detail đọc product/SKU/images/stock trong snapshot REPEATABLE_READ ngắn, đóng transaction trước gọi Merchant. Không có transaction xuyên service; lần GET sau phải kiểm lại trạng thái hiện tại. Public StorefrontService chỉ map lỗi kết nối/resource DB hoặc không mở được transaction thành503 an toàn; lỗi SQL lập trình vẫn500. [Demo và proof backend theo ngày](../demo-storefront.md); frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront. Chưa có reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ.

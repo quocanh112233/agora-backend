@@ -42,6 +42,8 @@ Trạng thái: bản nháp để review cùng [bản đồ context](capability-m
 
 ## UC-05 — Tìm và xem sản phẩm
 
+Implementation M2c2 ngày25/10/2026: đã có hai GET public `/api/v1/products` và `/api/v1/products/{productId}`, đã nghiệm thu local ngày 25/10/2026. Chỉ PUBLISHED có attached UPLOADED photo và shop hiện ACTIVE; hết tồn vẫn xem được. Merchant chỉ trả `{id,name}`, tên tối đa120codepoints và omit legacy blank. Browse đọc21candidate, chỉ xét20qua tối đa4batch×5ID; cursor theo candidate cuối đã xét nên trang rỗng vẫn có thể còn `nextCursor`, cần **Xem tiếp**. Stock product/SKU chỉ boolean từ lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh và available>0, không cam kết mua/giao. Không trả PII, version/audit/upload intent, mã/ngày lô hoặc số lượng tồn; [allowlist và trường private](../architecture/catalog-security.md#storefront-m2c2--public-projection). [Demo/proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. Review/Q&A, profile shop đầy đủ, reservation/FEFO allocation và checkout chưa triển khai; UC-05 toàn bộ chưa nghiệm thu.
+
 - Tác nhân: mọi người dùng.
 - Luồng: tìm tên, lọc danh mục/giá/xuất xứ/shop; xem sản phẩm, gian hàng, review và hỏi đáp.
 - AC-05.1: phân trang/sắp xếp có quy tắc ổn định; hàng ẩn/khóa không hiển thị như có thể mua.

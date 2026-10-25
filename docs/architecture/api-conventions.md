@@ -2,7 +2,7 @@
 
 Nguồn machine-readable: [OpenAPI 3.1 JSON](../../contracts/openapi/identity-merchant.v1.openapi.json). Bundle của hai service tách riêng; x-service xác định provider. Ngày 23/10/2026, cả 11 thao tác dưới đây đã triển khai, gồm account/session/CSRF và shop draft/submit/admin review/resubmit. OpenAPI vẫn giữ nguyên revision dùng chung với frontend; mô tả lịch sử trong snapshot không phải báo cáo tiến độ.
 
-Catalog M2a có artifact riêng [catalog.v1.openapi.json](../../contracts/openapi/catalog.v1.openapi.json) cho bốn thao tác seller product list/create/read/update. Không sửa artifact onboarding để thêm Catalog; phạm vi và quy tắc ở [kế hoạch M2a](../../tasks/slice-2-catalog.md) và [ranh giới Catalog](catalog-security.md).
+Catalog có artifact riêng [catalog.v1.openapi.json](../../contracts/openapi/catalog.v1.openapi.json) cho năm thao tác seller product list/create/read/update/visibility; media và inventory có contract riêng. M2c2 public browse/detail đã triển khai theo [catalog-storefront.v1.openapi.json](../../contracts/openapi/catalog-storefront.v1.openapi.json)1.0.0, đã nghiệm thu local ngày 25/10/2026. Không sửa artifact onboarding để thêm Catalog; [ranh giới Catalog](catalog-security.md) phân biệt quyền seller/public.
 
 ## 1. Phạm vi và tuyến
 
@@ -62,6 +62,14 @@ Hợp đồng [SessionIdentity v1](../../contracts/proto/agora/identity/v1/sessi
 
 Caller gửi metadata `x-agora-internal-token`, cấu hình bằng `INTERSERVICE_TOKEN` ngẫu nhiên 32–256 ký tự URL-safe, không hardcode. Local listener bind `127.0.0.1:9091`; plaintext chỉ dành cho loopback. Trước khi chạy qua mạng/container riêng phải thiết kế TLS/mTLS, không chỉ mở rộng bind. Không dùng bảng session chung hoặc header X-User-Id tự khai từ browser. Client đặt deadline 2 giây cho từng call, không tự retry; UNAUTHENTICATED/PERMISSION_DENIED/UNAVAILABLE tương ứng HTTP 401/403/503.
 
-Catalog gọi Identity rồi [MerchantAccess.ResolveActiveShop](../../contracts/proto/agora/merchant/v1/merchant_access.proto) ở loopback 9092. Merchant chỉ trả shop_id đang ACTIVE thuộc account_id đã được caller xác minh qua Identity. Cùng metadata nội bộ, deadline 2 giây/call, không cache quyền hoặc bỏ kiểm tra khi replay. INVALID_ARGUMENT cho account ID sai; chưa có shop/shop không ACTIVE trả PERMISSION_DENIED; lỗi DB trả UNAVAILABLE. Chi tiết ranh giới và race giữa các service ở [catalog-security](catalog-security.md).
+Request seller Catalog gọi Identity rồi [MerchantAccess.ResolveActiveShop](../../contracts/proto/agora/merchant/v1/merchant_access.proto) ở loopback 9092. Merchant chỉ trả shop_id đang ACTIVE thuộc account_id đã được caller xác minh qua Identity. Cùng metadata nội bộ, deadline 2 giây/call, không cache quyền hoặc bỏ kiểm tra khi replay. INVALID_ARGUMENT cho account ID sai; chưa có shop/shop không ACTIVE trả PERMISSION_DENIED; lỗi DB trả UNAVAILABLE. Chi tiết ranh giới và race giữa các service ở [catalog-security](catalog-security.md).
+
+## 6. Public storefront M2c2
+
+Chỉ GET `/api/v1/products` và GET `/api/v1/products/{productId}`, anonymous không cần cookie/CSRF và không gọi Identity. Cookie sai không đổi quyền read public; response no-store. Chỉ PUBLISHED+attached UPLOADED photo+shop hiện ACTIVE. Detail không khả dụng404; unknown/duplicate/malformed query, UUID hoặc cursor sai422; lỗi phụ thuộc DB/RPC hoặc RPC malformed503 an toàn, SQL lập trình vẫn500. Detail không nhận query parameter.
+
+Browse nhận `q` tối đa100codepoints, `origin`120, `category`PRODUCE/SEAFOOD, `shopId`UUID, minPriceVnd/maxPriceVnd số nguyên1..1e9 với min<=max. q/origin strip rồi literal case-insensitive contains, escape wildcard SQL; giá lọc là min mọi SKU kể cả hết tồn. Sort duy nhất created_at DESC,id DESC. Cursor base64url tối đa256ký tự bind normalized filters; đổi filter phải bỏ cursor. Response `{items,nextCursor}` tối đa20items, không count/page/offset. Đọc21candidate, chỉ kiểm20với Merchant tối đa4batch×5ID; cursor từ candidate cuối đã xét, có thể0items mà vẫn còn nextCursor. Client tiếp tục **Xem tiếp** tới khi cursor null; không có snapshot xuyên request.
+
+`FindPublicShops` nhận1–5UUID khác nhau, token/loopback/4KiB, deadline2giây/call, không retry/cache trạng thái. Response chỉ `{id,name}` ACTIVE hiện tại, name1..120codepoints không blank; Merchant omit legacy blank. Catalog kiểm subset/unique/shape/name, lỗi batch sau cũng fail503 toàn page. Public JSON dùng allowlist riêng, không serialize aggregate private; [trường public/private và stock boolean](catalog-security.md#storefront-m2c2--public-projection). Chưa có reservation, checkout hoặc review/Q&A. [Demo/proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront.
 
 Nguồn: [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0.html), [Spring Security CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html), [Spring Session JDBC](https://docs.spring.io/spring-session/reference/configuration/jdbc.html).

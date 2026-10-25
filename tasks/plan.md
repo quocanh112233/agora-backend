@@ -4,15 +4,23 @@ Trạng thái ngày 24/10/2026 sau resume 15:10: M1 tài khoản/mở shop/admin
 
 ## Cập nhật M2c1 sau resume20:23 ngày24/10
 
-M2c1 quản lý lô hàng đã nghiệm thu local ngày24/10/2026 sau resume20:23: backend150 tests (16:03:17, source không đổi), frontend98 unit,177 browser fixture production và5 live qua ba service đều đạt; build/lint/typecheck đạt, review cuối không còn blocker trong phạm vi sửa. Chưa có reservation/FEFO allocation, storefront hoặc checkout.
+M2c1 quản lý lô hàng đã nghiệm thu local ngày24/10/2026 sau resume20:23: backend150 tests (16:03:17, source không đổi), frontend98 unit,177 browser fixture production và5 live qua ba service đều đạt; build/lint/typecheck đạt, review cuối không còn blocker trong phạm vi sửa. Proof này là M2c1; chưa có reservation/FEFO allocation hoặc checkout.
 
 Canonical tracker `slice-2-inventory`: thiết kế/contract, backend, UI/live, docs và final checks đã hoàn thành local. [Plan inventory](slice-2-inventory.md), [demo](../docs/demo-inventory.md), [proof](../../frontend/docs/catalog-inventory-proof.md). Không coi M2 hoặc UC-04 toàn bộ hoàn tất khi chưa có reservation/FEFO/checkout. Các bằng chứng M2b2 và fixture cũ bên dưới là lịch sử.
+
+## Cập nhật M2c2 sau resume25/10 — implementation, đã nghiệm thu local
+
+Canonical tracker `slice-2-storefront`, [plan](slice-2-storefront.md). Đã triển khai đúng hai GET public `/api/v1/products` và `/api/v1/products/{productId}` theo [contract riêng](../contracts/openapi/catalog-storefront.v1.openapi.json). Chỉ PUBLISHED+attached UPLOADED photo+shop hiện ACTIVE; public shop chỉ `{id,name}` tối đa120codepoints, omit legacy blank. Không PII/version/audit/upload intent, mã/ngày lô hoặc số lượng tồn; [allowlist/trường private](../docs/architecture/catalog-security.md#storefront-m2c2--public-projection).
+
+Browse đọc21candidate theo created_at DESC,id DESC, chỉ xét20với Merchant tối đa4batch×5ID. Cursor theo candidate cuối đã xét; items có thể rỗng nhưng nextCursor vẫn còn, UI phải cho **Xem tiếp**. Stock chỉ boolean từ lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh và available>0, không hứa mua/giao. Không reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ.
+
+Main báo root verify **25/10/2026 20:50:38 +07:00 BUILD SUCCESS,185tests=13Identity+59Merchant+113Catalog,0fail/error/skip**. Catalog mới20=4query+13API+3service, gồm HTTP DB outage503safe/SQL syntax500. Frontend/live/review của M2c2 đã hoàn tất; UC-05 còn review/Q&A chưa triển khai. Bằng chứng M2c1/M2b2 được giữ theo ngày. Docs worker chỉ cập nhật tài liệu; main cung cấp final proof theo [plan storefront](slice-2-storefront.md), không thêm gate hoặc checklist song song. [Demo storefront](../docs/demo-storefront.md).
 
 ## 1. Nguồn và tracker
 
 [Use case](../docs/product/use-cases.md), [state machines](../docs/product/state-machines.md), [kiến trúc](../docs/architecture/architecture-overview.md), [cấu trúc](../docs/architecture/project-structure.md), [dữ liệu](../docs/architecture/data-model.md), [OpenAPI](../contracts/openapi/identity-merchant.v1.openapi.json).
 
-Task canonical: claude-mem work_state, list `slice-1-onboarding` và `slice-2-catalog`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
+Task canonical: claude-mem work_state; list hiện tại `slice-2-storefront`, các list trước gồm `slice-1-onboarding`, `slice-2-catalog` và `slice-2-inventory`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
 
 ## 2. Lát cắt 1
 
@@ -67,7 +75,7 @@ M2 đã có [sản phẩm/SKU M2a](slice-2-catalog.md), [ảnh M2b1](slice-2-med
 
 Root verify lịch sử 24/10 lúc 10:57:21 +07:00 đạt **133 tests (13 Identity + 44 Merchant + 76 Catalog)**. Frontend trước pause đạt **86 unit, 125 fixture production, 4 normal live, 2 media/publication live**. Sau resume, production build/lint/typecheck PASS, **86 unit và 144 fixture production PASS (23.8s)**, gồm **19 regression revalidation mới**; focused trước đó 18 GREEN sau 14 expected RED trên build cũ. Audit native mới ngày 24/10 exit 0/zero vulnerabilities. Main exact lookup hai asset publication/media tương thích trước pause khoảng 15h: all_missing=true, exit 0. Scan 216 Git-visible files/0 actual-secret matches; env mode 600 và contract digest/57–51 refs hợp lệ. Final static review Heisenberg clear, không còn code blocker; P2 fixed/review accepted. Normal live **4/4 PASS (6.7s)**, output `publication-resume-normal-live-green-20261024/`, gồm shared-session logout/re-login/editor-list clearing/recovery và giữ giá dirty khi focus. Test-only fix chờ DELETE logout 204 thay vì nav link luôn hiện, production code không đổi. Media/publication live **2/2 PASS (8.2s)**, output `publication-resume-media-live-20261024/`. M2b2 đã nghiệm thu local sau main xác minh hai asset mới DELETED/0 relation, final DRAFT/version 2 và HIDDEN/version 7; independent exact provider lookup 2 asset all_missing=true/exit 0. Runtime cleanup đã xác nhận: Next và ba backend đã dừng, backend graceful exit 130; container `--rm` đã bị xóa sau kiểm ID/label và docker stop exit 0, các cổng 3000/8081/8082/8083/9091/9092 đã đóng. `.env.live-test` ignored mode 600 hiện STALE; không giữ demo/named volume, chạy lại cần fixture/ADMIN mới. Native database giữ nguyên. Main xác nhận final secret scan sau cập nhật docs: 216 Git-visible files/0 actual-secret matches, cả hai env mode 600; 34 Markdown files/207 local links/0 broken, code fences cân bằng. Không có production hoặc GitHub Actions run claim.
 
-M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; reservation, storefront/public browse và checkout chưa triển khai. PUBLISHED chưa chứng minh mua được; bảng mốc bên dưới vẫn là đích, không phải nghiệm thu toàn M2.
+M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; M2c2 storefront/public browse/detail đã triển khai, đã nghiệm thu local ngày 25/10/2026. Reservation/FEFO allocation và checkout chưa triển khai. PUBLISHED/inStock không chứng minh mua/giao được; bảng mốc bên dưới vẫn là đích, không phải nghiệm thu toàn M2.
 
 | Mốc | Luồng hoàn chỉnh | Điều kiện chú ý |
 |---|---|---|

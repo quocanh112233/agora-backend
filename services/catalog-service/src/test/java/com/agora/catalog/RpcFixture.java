@@ -21,6 +21,11 @@ final class RpcFixture implements AutoCloseable {
     final AtomicReference<ResolveActiveShopRequest> merchantRequest = new AtomicReference<>();
     final AtomicInteger identityCalls = new AtomicInteger(), merchantCalls = new AtomicInteger();
     final AtomicLong identityDeadline = new AtomicLong(), merchantDeadline = new AtomicLong();
+    final AtomicInteger publicCalls = new AtomicInteger();
+    final java.util.List<Integer> publicBatchSizes = new java.util.concurrent.CopyOnWriteArrayList<>();
+    final AtomicInteger publicFailAt = new AtomicInteger();
+    final AtomicLong publicDeadline = new AtomicLong();
+    final AtomicReference<FindPublicShopsResponse> publicResponse = new AtomicReference<>();
     volatile boolean hangIdentity, hangMerchant;
     final Server identityServer, merchantServer;
     final ManagedChannel identityChannel, merchantChannel;
@@ -46,6 +51,18 @@ final class RpcFixture implements AutoCloseable {
                 }).build().start();
         merchantServer = InProcessServerBuilder.forName(merchantName).directExecutor().intercept(authentication())
                 .addService(new MerchantAccessGrpc.MerchantAccessImplBase() {
+                    @Override public void findPublicShops(FindPublicShopsRequest request, StreamObserver<FindPublicShopsResponse> out) {
+                        int call = publicCalls.incrementAndGet(); publicBatchSizes.add(request.getShopIdsCount());
+                        publicDeadline.set(Context.current().getDeadline().timeRemaining(TimeUnit.MILLISECONDS));
+                        if (publicFailAt.get() == call) { out.onError(Status.UNAVAILABLE.asRuntimeException()); return; }
+                        if (hangMerchant) return;
+                        if (merchantFailure.get() != null) { out.onError(merchantFailure.get().asRuntimeException()); return; }
+                        if (publicResponse.get() != null) { out.onNext(publicResponse.get()); out.onCompleted(); return; }
+                        var result = FindPublicShopsResponse.newBuilder();
+                        for (String id : request.getShopIdsList()) if (shops.containsValue(UUID.fromString(id)))
+                            result.addShops(PublicShop.newBuilder().setId(id).setName("Cửa hàng công khai"));
+                        out.onNext(result.build()); out.onCompleted();
+                    }
                     @Override public void resolveActiveShop(ResolveActiveShopRequest request, StreamObserver<ResolveActiveShopResponse> out) {
                         merchantCalls.incrementAndGet(); merchantRequest.set(request);
                         merchantDeadline.set(Context.current().getDeadline().timeRemaining(TimeUnit.MILLISECONDS));

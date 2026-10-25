@@ -1,6 +1,9 @@
 package com.agora.merchant.configuration;
 
+import com.agora.contracts.merchant.v1.FindPublicShopsRequest;
+import com.agora.contracts.merchant.v1.FindPublicShopsResponse;
 import com.agora.contracts.merchant.v1.MerchantAccessGrpc;
+import com.agora.contracts.merchant.v1.PublicShop;
 import com.agora.contracts.merchant.v1.ResolveActiveShopRequest;
 import com.agora.contracts.merchant.v1.ResolveActiveShopResponse;
 import com.agora.merchant.application.ShopService;
@@ -17,6 +20,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
@@ -74,6 +78,31 @@ public class MerchantGrpcServer implements SmartLifecycle {
     }
 
     private final class Endpoint extends MerchantAccessGrpc.MerchantAccessImplBase {
+        @Override public void findPublicShops(FindPublicShopsRequest request, StreamObserver<FindPublicShopsResponse> observer) {
+            var ids = new ArrayList<UUID>();
+            try {
+                if (request.getShopIdsCount() < 1 || request.getShopIdsCount() > 5) throw new IllegalArgumentException();
+                for (String value : request.getShopIdsList()) {
+                    UUID id = UUID.fromString(value);
+                    if (!id.toString().equalsIgnoreCase(value) || ids.contains(id)) throw new IllegalArgumentException();
+                    ids.add(id);
+                }
+            } catch (IllegalArgumentException exception) {
+                observer.onError(Status.INVALID_ARGUMENT.asRuntimeException());
+                return;
+            }
+            try {
+                var response = FindPublicShopsResponse.newBuilder();
+                for (var shop : shops.findPublicShops(ids))
+                    response.addShops(PublicShop.newBuilder().setId(shop.id().toString()).setName(shop.name()));
+                observer.onNext(response.build());
+                observer.onCompleted();
+            } catch (RuntimeException exception) {
+                org.slf4j.LoggerFactory.getLogger(MerchantGrpcServer.class).error("Public shop lookup failed type={}",
+                        exception.getClass().getSimpleName());
+                observer.onError(Status.UNAVAILABLE.asRuntimeException());
+            }
+        }
         @Override public void resolveActiveShop(ResolveActiveShopRequest request, StreamObserver<ResolveActiveShopResponse> observer) {
             UUID account;
             try {

@@ -83,6 +83,12 @@ Các bộ đếm nguyên0–1.000.000gói, held+allocated<=onHand. M2c1 chưa c�
 
 FK SKU bổ sung UNIQUE(id,product_id,shop_id); unique(product_id,position) DEFERRABLE INITIALLY DEFERRED cho reorder trong transaction. Tạo lô và sửa Product dùng cùng parent row lock; guard giữ SKU đã có lô bất kể state/hạn dùng. Requests cố ý không lấy FK parent lúc claim để tránh key-share upgrade deadlock giữa hai create; service xác minh owned product trước claim, lock trước kiểm SKU, completion tham chiếu lot. Lot/audit/result rollback cùng nhau. [Contract](../../contracts/openapi/catalog-inventory.v1.openapi.json), [demo](../demo-inventory.md).
 
+### Catalog M2c2 — public read qua V5, đã nghiệm thu local
+
+[V5__public_product_browse.sql](../../services/catalog-service/src/main/resources/db/migration/V5__public_product_browse.sql) chỉ thêm partial index `products_public_newest` trên products(created_at DESC,id DESC) WHERE status='PUBLISHED'; V1–V4 giữ nguyên, không thêm bảng hoặc bản sao Merchant/Identity. Browse/detail dùng projection riêng từ product/SKU, relation ảnh UPLOADED và inventory_lots; detail dùng REPEATABLE_READ ngắn rồi đóng transaction trước Merchant RPC kiểm shop ACTIVE hiện tại.
+
+Browse đọc21candidate, chỉ xét20và xác minh Merchant tối đa4batch×5ID. Cursor theo candidate cuối đã xét; trang rỗng vẫn có thể còn nextCursor, không total count. Public chỉ trả shop `{id,name}` tối đa120codepoints, omit legacy blank. Product/SKU `inStock` là EXISTS lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh, on_hand-held-allocated>0; không trả exact count, mã/ngày lô, version/audit hoặc upload intent. [Allowlist và trường private](catalog-security.md#storefront-m2c2--public-projection), [demo/proof backend](../demo-storefront.md). Không reservation/FEFO allocation hoặc đảm bảo mua/giao; frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront.
+
 ## 3. Dữ liệu các service sau
 
 | Service | Aggregate/data chính | Bất biến cần giữ |
@@ -112,4 +118,4 @@ MVP ưu tiên tính count/sum/average từ review đang hiển thị để trán
 
 Outbox/inbox thêm ở database context có sự kiện liên service khi cần. Sổ tiền append-only và có bút toán điều chỉnh; không sửa số dư bằng thao tác tay thay cho lịch sử giao dịch.
 
-Catalog có schema product/SKU, ảnh, visibility và lô qua V4; schema reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.
+Catalog có schema product/SKU, ảnh, visibility và lô qua V4, V5 thêm index public browse; schema reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.

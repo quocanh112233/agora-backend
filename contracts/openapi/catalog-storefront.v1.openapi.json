@@ -1,0 +1,510 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agora Public Storefront API",
+    "version": "1.0.0",
+    "description": "Anonymous, read-only, no-store projections: only PUBLISHED products with attached verified images and a currently ACTIVE shop. Public shop fields are ID/name only. inStock means at least one current ACTIVE lot with remaining physical packages and expiresOn after today in Asia/Ho_Chi_Minh; it is not a checkout or delivery promise. No private quantities, lots, owner/contact/address, audit, versions or upload intent. Query contains searches are literal case-insensitive; price filters apply to minimum advertised SKU price. Stable newest createdAt/id order. Each request scans at most20 Catalog candidates and checks shops in batches of5; inactive shops can yield short/empty items while nextCursor advances. Follow nextCursor until null; no total count. Duplicate/unknown query and cursor reused with other filters return422."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8083/api/v1"
+    }
+  ],
+  "paths": {
+    "/products": {
+      "get": {
+        "operationId": "browseProducts",
+        "tags": [
+          "Storefront"
+        ],
+        "x-service": "catalog-service",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current public projection; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProductPage"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or duplicate/unknown query, UUID or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable or malformed public shop response; fail closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PRODUCE",
+                "SEAFOOD"
+              ]
+            }
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "shopId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "minPriceVnd",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000
+            },
+            "description": "Filter the minimum advertised SKU price (VND per package)."
+          },
+          {
+            "name": "maxPriceVnd",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000
+            },
+            "description": "Filter the minimum advertised SKU price (VND per package)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Continuation bound to normalized filters; next candidate window, not an offset or promise of 20 visible products."
+          }
+        ]
+      }
+    },
+    "/products/{productId}": {
+      "get": {
+        "operationId": "getPublicProduct",
+        "tags": [
+          "Storefront"
+        ],
+        "x-service": "catalog-service",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current public projection; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProduct"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product unavailable; do not reveal private state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or duplicate/unknown query, UUID or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable or malformed public shop response; fail closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "traceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "traceId",
+          "details"
+        ]
+      },
+      "PublicShop": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      },
+      "PublicImage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "width",
+          "height"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://res\\.cloudinary\\.com/[A-Za-z0-9_-]+/image/upload/v[1-9][0-9]*/agora/products/[0-9a-f-]{36}/[0-9a-f-]{36}\\.(jpg|png)$"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20000000
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20000000
+          }
+        }
+      },
+      "PublicSku": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "priceVnd",
+          "netWeightGrams",
+          "saleUnit",
+          "inStock"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "priceVnd": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000
+          },
+          "netWeightGrams": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "saleUnit": {
+            "type": "string",
+            "const": "PACKAGE"
+          },
+          "inStock": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PublicProductSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "category",
+          "condition",
+          "origin",
+          "shop",
+          "inStock",
+          "minPriceVnd",
+          "thumbnail"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "PRODUCE",
+              "SEAFOOD"
+            ]
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "FRESH",
+              "FROZEN",
+              "DRIED",
+              "PROCESSED"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "shop": {
+            "$ref": "#/components/schemas/PublicShop"
+          },
+          "inStock": {
+            "type": "boolean"
+          },
+          "minPriceVnd": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000
+          },
+          "thumbnail": {
+            "$ref": "#/components/schemas/PublicImage"
+          }
+        }
+      },
+      "PublicProduct": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "category",
+          "condition",
+          "origin",
+          "shop",
+          "inStock",
+          "description",
+          "producerName",
+          "storageInstructions",
+          "skus",
+          "images"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "PRODUCE",
+              "SEAFOOD"
+            ]
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "FRESH",
+              "FROZEN",
+              "DRIED",
+              "PROCESSED"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "shop": {
+            "$ref": "#/components/schemas/PublicShop"
+          },
+          "inStock": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "producerName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "storageInstructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "skus": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/PublicSku"
+            }
+          },
+          "images": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/PublicImage"
+            }
+          }
+        }
+      },
+      "PublicProductPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/PublicProductSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        }
+      }
+    }
+  }
+}

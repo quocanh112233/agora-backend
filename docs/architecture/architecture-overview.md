@@ -8,7 +8,7 @@ Ngày cập nhật: 2026-10-24. M1, Catalog M2a và ảnh Cloudinary M2b1 đã n
 |---|---|---|---|
 | identity-service | Identity/Access | PostgreSQL local agora; schema identity | Đã triển khai M1 |
 | merchant-service | Merchant | PostgreSQL agora_merchant; schema merchant | Đã triển khai M1 |
-| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1 đã nghiệm thu; P2 review accepted; 144 fixture/4 normal/2 media live PASS, M2b2 đã nghiệm thu local 24/10 khoảng 15:40 sau cleanup hai asset mới; M2c1 đã có nhập lô/khóa/mở; reservation chưa triển khai |
+| catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1/M2b2/M2c1 đã nghiệm thu local; M2c2 public browse/detail đã triển khai, đã nghiệm thu local ngày 25/10/2026; reservation chưa triển khai |
 | commerce-service | Commerce, Fulfillment, Notification | PostgreSQL agora_commerce | Sau catalog |
 | payment-service | Payment | PostgreSQL agora_payment | Thử sandbox sớm, tích hợp cùng checkout |
 | feedback-service | Feedback | PostgreSQL agora_feedback; schema feedback, dự kiến | Sau đơn giao thành công |
@@ -27,8 +27,8 @@ flowchart LR
     Edge --> Merchant[Merchant]
     Merchant -->|Xac minh danh tinh| Identity
     Edge --> Catalog[Catalog / Inventory]
-    Catalog -->|gRPC xac minh session / CSRF| Identity
-    Catalog -->|gRPC shop ACTIVE| Merchant
+    Catalog -->|Seller: gRPC session / CSRF| Identity
+    Catalog -->|Seller: ResolveActiveShop; public: FindPublicShops| Merchant
     Edge --> Commerce[Commerce / Fulfillment]
     Edge --> Payment[Payment]
     Edge --> Feedback[Feedback]
@@ -85,6 +85,14 @@ Web gọi HTTP/JSON cùng origin dưới /api/v1. gRPC dành cho backend, không
 
 ## M2c1 — Inventory trong Catalog
 
-M2c1 quản lý lô hàng đã nghiệm thu local ngày24/10/2026 sau resume20:23: backend150 tests (16:03:17, source không đổi), frontend98 unit,177 browser fixture production và5 live qua ba service đều đạt; build/lint/typecheck đạt, review cuối không còn blocker trong phạm vi sửa. Chưa có reservation/FEFO allocation, storefront hoặc checkout.
+M2c1 quản lý lô hàng đã nghiệm thu local ngày24/10/2026 sau resume20:23: backend150 tests (16:03:17, source không đổi), frontend98 unit,177 browser fixture production và5 live qua ba service đều đạt; build/lint/typecheck đạt, review cuối không còn blocker trong phạm vi sửa. Các số này là proof M2c1; chưa có reservation/FEFO allocation hoặc checkout.
 
 InventoryLot dùng cùng database Catalog, không thêm service hoặc broker. Tạo lô và replace Product khóa cùng product row trước kiểm SKU; FK cùng product/shop/SKU và upsert giữ lịch sử. Lô có version riêng; lot/audit/idempotency result commit cùng transaction. Trạng thái hết hạn được tính theo ngày Việt Nam trên request, không dựa scheduler. Claim/replay xảy ra trước kiểm tra thời gian hiện tại; replay là snapshot lịch sử, GET mới quyết định trạng thái hiển thị. Xem [data model](data-model.md), [quyền](catalog-security.md) và [demo](../demo-inventory.md).
+
+## M2c2 — public browse/detail, đã nghiệm thu local
+
+Đã triển khai hai GET `/api/v1/products` và `/api/v1/products/{productId}` trong Catalog, không gọi Identity cho public read. Chỉ PUBLISHED có attached UPLOADED photo và shop hiện ACTIVE qua Merchant `FindPublicShops`. Merchant chỉ trả `{id,name}`, tên tối đa120codepoints, omit legacy blank. Catalog dùng projection riêng, không trả private Product/Shop/lot/upload; [allowlist và trường private](catalog-security.md#storefront-m2c2--public-projection).
+
+Browse đọc21candidate theo created_at DESC,id DESC, chỉ xét20và gọi Merchant tối đa4batch×5ID. Candidate thứ21 chỉ lookahead; cursor advance theo candidate cuối đã xét. Sau lọc shop có thể có trang rỗng nhưng còn `nextCursor`. Không total count, không tải toàn bộ shop; RPC deadline2giây/call, không retry, lỗi bất kỳ batch nào trả503 toàn request. Detail dùng snapshot REPEATABLE_READ cục bộ, kết thúc transaction trước RPC; shop/product có thể đổi sau kiểm tra, GET sau phải đọc lại.
+
+Product/SKU `inStock` chỉ là boolean từ lô ACTIVE còn hạn theo ngày Việt Nam và on_hand-held-allocated>0; hết tồn vẫn xem được. Không reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ; snapshot public không phải cam kết mua/giao. [Demo storefront](../demo-storefront.md) ghi proof backend25/10; frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront.

@@ -18,6 +18,10 @@ Trạng thái: bản nháp cùng [use case](use-cases.md) và [bản đồ conte
 | Product | `DRAFT`, `PUBLISHED`, `HIDDEN`, `BLOCKED` | Công bố cần shop hoạt động/dữ liệu hợp lệ; chủ shop ẩn, admin khóa |
 | InventoryLot | `ACTIVE`, `BLOCKED`, `EXPIRED`, `DEPLETED` | Chỉ lô đủ điều kiện được giữ; hết hạn/khóa/hết tồn chặn phân bổ mới |
 
+Implementation hiện tại: Product có DRAFT/PUBLISHED/HIDDEN; Product BLOCKED và quản trị khóa sản phẩm trong bảng là đích. Inventory M2c1 lưu ACTIVE/BLOCKED, tính EXPIRED/DEPLETED trên request. Reservation/FEFO allocation và checkout bên dưới chưa triển khai.
+
+Public browse/detail M2c2 đã triển khai, đã nghiệm thu local ngày 25/10/2026: chỉ PUBLISHED+attached UPLOADED photo+shop hiện ACTIVE. Product/SKU `inStock` là boolean có lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh, on_hand-held-allocated>0; thiếu tồn chỉ false, không ẩn sản phẩm. Boolean không tạo HELD/ALLOCATED hoặc đảm bảo mua/giao. Khóa account owner không tự chuyển shop sang SUSPENDED; public kiểm shop hiện tại, checkout sau này cần policy riêng. [Demo và proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront.
+
 Trạng thái lô không thay phép tính tồn và kiểm tra thời gian hiện tại. Scheduler cập nhật EXPIRED chậm không được khiến checkout bán hàng hết hạn. Mở khóa không được làm lô hết hạn thành đủ điều kiện.
 
 ## 3. Reservation

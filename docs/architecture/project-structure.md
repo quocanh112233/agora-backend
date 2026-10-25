@@ -11,7 +11,7 @@ backend/
 ├── services/
 │   ├── identity-service/           # Đã có
 │   ├── merchant-service/           # Đã có, tách riêng
-│   ├── catalog-service/            # Product/SKU, ảnh, visibility và lô M2c1
+│   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô và public browse/detail
 │   ├── commerce-service/
 │   ├── payment-service/
 │   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
@@ -122,5 +122,11 @@ Nguồn: [Spring Boot structure](https://docs.spring.io/spring-boot/reference/us
 ## M2c1 — thành phần đã triển khai
 
 Catalog thêm `domain/InventoryLot`, `application/InventoryStore`/`InventoryService`, `adapter/inbound/InventoryController`, `adapter/outbound/JdbcInventoryStore`, `configuration/InventoryConfiguration` và migration `V4__inventory_lots.sql`. ProductService/JdbcProductStore giữ khóa product và upsert SKU thay vì xóa toàn bộ. Test `InventoryLotTests`/`InventoryApiTests` có17ca mới trong root150tests; không tạo module hay dependency mới.
+
+## M2c2 — public browse/detail đã triển khai, đã nghiệm thu local
+
+Catalog thêm `application/StorefrontQuery`, `StorefrontService`, `StorefrontStore`, `PublicShops`; inbound `StorefrontController`, outbound `JdbcStorefrontStore`/`GrpcPublicShops` và migration `V5__public_product_browse.sql`. Merchant thêm public `{id,name}` projection qua `ShopService` và endpoint `MerchantGrpcServer` cho `MerchantAccess.FindPublicShops`. Không thêm module/dependency hoặc đọc database xuyên service.
+
+[Contract public riêng](../../contracts/openapi/catalog-storefront.v1.openapi.json) chỉ có hai GET list/detail, tách seller/media/inventory; projection không dùng nguyên Product/Shop private. Các test storefront hiện có `StorefrontQueryTests`, `StorefrontApiTests`, `StorefrontServiceTests` và Merchant `MerchantPublicShopGrpcTests`; [demo](../demo-storefront.md) ghi backend proof25/10, frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. M2c2 đã nghiệm thu local; review/Q&A của UC-05 chưa triển khai.
 
 Contract riêng `contracts/openapi/catalog-inventory.v1.openapi.json`; frontend ghim snapshot/type, route `/seller/products/[productId]/lots`, feature `catalog-inventory`, fixtures và live spec. [Demo](../demo-inventory.md) và [proof](../../../frontend/docs/catalog-inventory-proof.md) ghi177fixture/98unit/5live cùng giới hạn nghiệm thu local.

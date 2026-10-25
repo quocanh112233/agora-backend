@@ -2,6 +2,8 @@
 
 Trạng thái: bản nháp để review. Bộ tài liệu gồm ranh giới nghiệp vụ, use case và trạng thái; chưa phải kế hoạch triển khai hoặc hợp đồng API hoàn chỉnh.
 
+Cập nhật implementation25/10/2026: M1, Catalog sản phẩm/SKU/ảnh/visibility và M2c1 quản lý lô đã nghiệm thu local. M2c2 đã triển khai public browse/detail qua đúng hai GET, đã nghiệm thu local ngày 25/10/2026; backend proof theo ngày ở [demo storefront](../demo-storefront.md), frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. Các khả năng checkout/giữ hàng/GHN/VNPAY/review/Q&A trong bản đồ bên dưới vẫn là đích.
+
 ## 1. Mục tiêu và phạm vi đã xác nhận
 
 Website marketplace B2B2C cho nông sản và thủy hải sản, phục vụ portfolio cá nhân. Người bán dự kiến là hợp tác xã, cơ sở sản xuất và cửa hàng; khách mua là cá nhân. Người dùng làm một mình, không đặt hạn chót cố định.
@@ -18,7 +20,7 @@ Tiêu chí thành công: hoàn thành một luồng mua hàng có thể demo, b�
 | Checkout | Một shop mỗi lần thanh toán |
 | Vận hành | Docker, GitHub Actions |
 
-Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md) và [ADR-0003](../decisions/0003-postgresql-only.md). Ngày 23/10/2026, M1 tài khoản/mở shop/admin review đã nghiệm thu local; service sau và deployment chưa triển khai.
+Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md) và [ADR-0003](../decisions/0003-postgresql-only.md). Hiện có Identity/Merchant/Catalog; Commerce/Payment/Feedback và deployment chưa triển khai.
 
 ## 2. Mặc định thiết kế đề xuất
 
@@ -44,6 +46,8 @@ Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeSc
 | Hệ thống | Hết hạn, retry, IPN/webhook, đối chiếu kết quả |
 
 Một người có thể vừa mua vừa bán. Backend xác minh quyền sở hữu từng tài nguyên; không dựa vào nút đã ẩn trên frontend.
+
+Public hiện chỉ PUBLISHED có ảnh attached UPLOADED và shop hiện ACTIVE. Merchant chỉ công khai `{id,name}`, name tối đa120codepoints, omit legacy blank; không có profile shop đầy đủ. Browse giới hạn20candidate, Merchant tối đa4batch×5ID, có thể trả trang rỗng mà còn nextCursor. Product/SKU `inStock` chỉ là boolean từ lô ACTIVE còn hạn Việt Nam và available>0; không phải hứa giữ/mua/giao hàng. Không public PII, version/audit/upload intent, mã/ngày lô hoặc số lượng tồn; [allowlist/trường private](../architecture/catalog-security.md#storefront-m2c2--public-projection).
 
 ## 4. Bounded context và dữ liệu sở hữu
 

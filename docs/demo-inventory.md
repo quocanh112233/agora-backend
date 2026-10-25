@@ -2,6 +2,8 @@
 
 M2c1 cung cấp nhập/xem/khóa/mở lô hàng cho chủ shop ACTIVE, trên Product DRAFT/HIDDEN/PUBLISHED. Chưa có reservation, điều chỉnh số lượng, xuất hàng hoặc checkout. [Plan](../tasks/slice-2-inventory.md), [contract](../contracts/openapi/catalog-inventory.v1.openapi.json), [proof local](../../frontend/docs/catalog-inventory-proof.md).
 
+M2c2 [public browse/detail](demo-storefront.md) đã triển khai, đã nghiệm thu local ngày 25/10/2026. Public chỉ đọc `inStock` boolean từ lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh và on_hand-held-allocated>0; không công khai số gói/mã/ngày lô hoặc version/audit. Hết tồn vẫn xem được; boolean không giữ hàng hoặc đảm bảo mua/giao. Proof M2c1 bên dưới giữ theo ngày; proof storefront nằm trong demo riêng.
+
 ## Chuẩn bị
 
 Chạy Identity/Merchant/Catalog và Next theo [README](../README.md), [demo onboarding](demo-onboarding.md) và [demo Catalog](demo-catalog.md). Chọn đúng database từng service; integration/live dùng PostgreSQL Docker biệt lập, không truncate/reset native database. Flyway áp dụng V4 khi Catalog khởi động vào database được cấu hình. Không sửa migration đã áp dụng hoặc đưa credential vào tài liệu.
