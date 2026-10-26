@@ -40,6 +40,24 @@ public class JdbcStorefrontStore implements StorefrontStore {
         return jdbc.query(sql.toString(),(r,n)->candidate(r),args.toArray());
     }
     private String literal(String s){return "%"+s.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%";}
+    @Override public List<Offer> offers(List<UUID> skuIds,LocalDate today){
+        var sql="""
+            SELECT p.id AS product_id,p.shop_id,p.name,s.id AS sku_id,s.label,s.price_vnd,s.net_weight_grams,
+              photo.url,photo.width,photo.height,
+              EXISTS(SELECT 1 FROM catalog.inventory_lots l WHERE l.sku_id=s.id AND %s) AS in_stock
+            FROM catalog.skus s
+            JOIN catalog.products p ON p.id=s.product_id AND p.shop_id=s.shop_id
+            JOIN LATERAL(SELECT u.url,u.width,u.height FROM catalog.product_images pi
+              JOIN catalog.image_uploads u ON u.id=pi.upload_id AND u.product_id=pi.product_id AND u.shop_id=pi.shop_id
+              WHERE pi.product_id=p.id AND u.state='UPLOADED' ORDER BY pi.position LIMIT 1) photo ON true
+            WHERE p.status='PUBLISHED' AND s.id IN (%s)
+            ORDER BY s.id
+            """.formatted(STOCK,String.join(",",Collections.nCopies(skuIds.size(),"?")));
+        var args=new ArrayList<Object>();args.add(today);args.addAll(skuIds);
+        return jdbc.query(sql,(r,n)->new Offer(r.getObject("product_id",UUID.class),r.getObject("sku_id",UUID.class),
+                r.getObject("shop_id",UUID.class),r.getString("name"),r.getString("label"),r.getLong("price_vnd"),
+                r.getInt("net_weight_grams"),r.getBoolean("in_stock"),new Image(r.getString("url"),r.getInt("width"),r.getInt("height"))),args.toArray());
+    }
     @Override @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Optional<Details> detail(UUID id,LocalDate today){
         var roots=jdbc.query(BASE+" AND p.id=?",(r,n)->new Details(candidate(r),r.getString("description"),r.getString("producer_name"),r.getString("storage_instructions"),List.of(),List.of()),today,id);

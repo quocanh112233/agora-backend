@@ -1,8 +1,10 @@
-# Agora — Hợp đồng API lát cắt 1
+# Agora — Hợp đồng HTTP và gRPC
 
 Nguồn machine-readable: [OpenAPI 3.1 JSON](../../contracts/openapi/identity-merchant.v1.openapi.json). Bundle của hai service tách riêng; x-service xác định provider. Ngày 23/10/2026, cả 11 thao tác dưới đây đã triển khai, gồm account/session/CSRF và shop draft/submit/admin review/resubmit. OpenAPI vẫn giữ nguyên revision dùng chung với frontend; mô tả lịch sử trong snapshot không phải báo cáo tiến độ.
 
 Catalog có artifact riêng [catalog.v1.openapi.json](../../contracts/openapi/catalog.v1.openapi.json) cho năm thao tác seller product list/create/read/update/visibility; media và inventory có contract riêng. M2c2 public browse/detail đã triển khai theo [catalog-storefront.v1.openapi.json](../../contracts/openapi/catalog-storefront.v1.openapi.json)1.0.0, đã nghiệm thu local ngày 25/10/2026. Không sửa artifact onboarding để thêm Catalog; [ranh giới Catalog](catalog-security.md) phân biệt quyền seller/public.
+
+Commerce M3a đã có [OpenAPI giỏ1.0.0](../../contracts/openapi/commerce-cart.v1.openapi.json) với ba operation cho người mua đăng nhập; xem [mục7](#7-commerce-m3a). [Demo giỏ](../demo-cart.md) ghi root backend26/10 đạt, frontend/live/review M3a đã hoàn tất ngày 26/10.
 
 ## 1. Phạm vi và tuyến
 
@@ -44,7 +46,7 @@ CSRF filter có thể trả 403 trước bước xác thực; không hứa mọi
 
 List admin: page bắt đầu 0, pageSize mặc định 20 tối đa 100; sort cố định createdAt giảm dần rồi id giảm dần. Response gồm items, page, pageSize, totalItems. Không nhận tên cột sort tùy ý.
 
-## 4. Idempotency và cạnh tranh
+## 4. Idempotency và cạnh tranh onboarding
 
 - Client sinh UUID một lần cho một ý định, giữ nguyên qua retry; thao tác khác có key mới.
 - Key scope theo actor + operation + key; payload hash gồm body và resource ID, không gồm cookie/traceId.
@@ -71,5 +73,25 @@ Chỉ GET `/api/v1/products` và GET `/api/v1/products/{productId}`, anonymous k
 Browse nhận `q` tối đa100codepoints, `origin`120, `category`PRODUCE/SEAFOOD, `shopId`UUID, minPriceVnd/maxPriceVnd số nguyên1..1e9 với min<=max. q/origin strip rồi literal case-insensitive contains, escape wildcard SQL; giá lọc là min mọi SKU kể cả hết tồn. Sort duy nhất created_at DESC,id DESC. Cursor base64url tối đa256ký tự bind normalized filters; đổi filter phải bỏ cursor. Response `{items,nextCursor}` tối đa20items, không count/page/offset. Đọc21candidate, chỉ kiểm20với Merchant tối đa4batch×5ID; cursor từ candidate cuối đã xét, có thể0items mà vẫn còn nextCursor. Client tiếp tục **Xem tiếp** tới khi cursor null; không có snapshot xuyên request.
 
 `FindPublicShops` nhận1–5UUID khác nhau, token/loopback/4KiB, deadline2giây/call, không retry/cache trạng thái. Response chỉ `{id,name}` ACTIVE hiện tại, name1..120codepoints không blank; Merchant omit legacy blank. Catalog kiểm subset/unique/shape/name, lỗi batch sau cũng fail503 toàn page. Public JSON dùng allowlist riêng, không serialize aggregate private; [trường public/private và stock boolean](catalog-security.md#storefront-m2c2--public-projection). Chưa có reservation, checkout hoặc review/Q&A. [Demo/proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront.
+
+## 7. Commerce M3a
+
+HTTP 127.0.0.1:8084/api/v1, [OpenAPI](../../contracts/openapi/commerce-cart.v1.openapi.json). Cả ba operation kiểm Identity account/session hiện tại; mutation kiểm CSRF trước replay. Cookie AGORA_SESSION trùng bị từ chối. Response no-store và trace/security headers.
+
+| Method/path dưới /api/v1 | Input | Response200 |
+| --- | --- | --- |
+| GET /me/cart | Không query | {cartId,version,items}, tối đa 20dòng, sort skuId ổn định |
+| PUT /me/cart/items/{skuId} | {cartId,productId,quantity,expectedVersion}; CSRF + UUID Idempotency-Key | {version}; quantity tuyệt đối1..99 |
+| DELETE /me/cart/items/{skuId} | {cartId,expectedVersion}; CSRF + UUID Idempotency-Key | {version}; không gọi Catalog |
+
+Chưa có cart row thì GET trả version 0/items rỗng, không ghi DB. Item chỉ productId/skuId/quantity/offer; current offer nullable khi mất product/SKU/ảnh/shop public. Giỏ nhiều shop nhưng tối đa 20 SKU tổng cộng. PUT mới chỉ chấp nhận product/SKU public và inStock=true, không cam kết đủ exact quantity. PUT quantity không đổi hoặc DELETE dòng đã thiếu là no-op với version đúng. Giỏ không giữ hàng/checkout.
+
+cartId UUID opaque ổn định theo account đã xác minh; cartId account cũ trả409 CART_CHANGED trước replay/write dù version trùng. Version0..9007199254740991. Body tối đa 4096 bytes; field/query/UUID/key/quantity/version sai 422; duplicate/trailing/malformed JSON 400. Mutation mới xung đột version/cap/availability 409, session401, CSRF 403, dependency503, SQL defect500 an toàn.
+
+Key scope **actor+key**; operation/hash phải khớp. Hash bind operation/cartId/pathSKU/toàn body gồm product/quantity/expectedVersion khi có. Giữ đúng body/key khi retry intent chưa rõ kết quả; khác payload 422 IDEMPOTENCY_MISMATCH. Key giữ tối thiểu 7 ngày, cleanup hàng giờ. PUT preflight replay trước Catalog rồi recheck dưới cart row lock trước version/write; lookup lỗi/không khả dụng cũng tra lại replay. DELETE chỉ dùng Identity/Commerce store. Replay trả version gốc sau auth/CSRF/cartId checks; phải GET lại sau 200.
+
+[ResolveOffers](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) nhận1–20 distinct SKU UUID, omit missing/ineligible. Response subset/unique/product mapping phải đúng. Listener optional 9093 loopback, token32–256 URL-safe, inbound4 KiB / max 32 calls mỗi connection; Commerce inbound64 KiB/deadline 10 giây/không retry. Identity 2 giây/call, Merchant tối đa 4 batch × 5shop/2 giây mỗi call. [Offer allowlist/validation](catalog-security.md#m3a--catalogoffers-cho-giỏ-hàng).
+
+Sau 200 phải GET mới trước PUT tiếp. Refresh503 chỉ giữ cartId/version cùng refs productId/skuId/quantity của chính giỏ để DELETE, bỏ offer/tên/giá/ảnh cũ; replay version cũ có thể 409 và cần refresh. Khi401/403 hoặc đổi cartId phải xóa dữ liệu/intent riêng và bỏ response account cũ. Đây là hành vi cần nghiệm thu frontend, chưa phải proof frontend/live PASS.
 
 Nguồn: [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0.html), [Spring Security CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html), [Spring Session JDBC](https://docs.spring.io/spring-session/reference/configuration/jdbc.html).

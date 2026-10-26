@@ -18,9 +18,23 @@ class CatalogConfigurationTests {
                 .forEach(source -> env.getPropertySources().addLast(source));
         assertThat(env.getProperty("spring.datasource.url")).isEqualTo("jdbc:postgresql://127.0.0.1:5432/agora_catalog");
         assertThat(env.getProperty("server.port")).isEqualTo("8083");
+        assertThat(env.getProperty("agora.grpc.enabled")).isEqualTo("false");
+        assertThat(env.getProperty("agora.grpc.port")).isEqualTo("9093");
         env.getPropertySources().addFirst(new MapPropertySource("catalog-overrides", Map.of(
-                "CATALOG_DB_NAME", "disposable_catalog", "CATALOG_SERVER_PORT", "18083")));
+                "CATALOG_DB_NAME", "disposable_catalog", "CATALOG_SERVER_PORT", "18083",
+                "CATALOG_GRPC_ENABLED", "true", "CATALOG_GRPC_PORT", "19093", "INTERSERVICE_TOKEN", "test-internal-token-at-least-32-characters")));
         assertThat(env.getProperty("spring.datasource.url")).endsWith("/disposable_catalog");
         assertThat(env.getProperty("server.port")).isEqualTo("18083");
+        assertThat(env.getProperty("agora.grpc.enabled")).isEqualTo("true");
+        assertThat(env.getProperty("agora.grpc.port")).isEqualTo("19093");
+        assertThat(env.getProperty("agora.grpc.token")).isEqualTo("test-internal-token-at-least-32-characters");
+    }
+    @Test void optionalListenerIsAbsentWhenDisabledAndInvalidEnabledConfigurationFailsStartup() {
+        var context=new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withUserConfiguration(com.agora.catalog.configuration.CatalogGrpcServer.class)
+                .withBean(com.agora.catalog.application.CatalogOffersService.class,()->org.mockito.Mockito.mock(com.agora.catalog.application.CatalogOffersService.class));
+        context.run(c->assertThat(c).doesNotHaveBean(com.agora.catalog.configuration.CatalogGrpcServer.class));
+        context.withPropertyValues("agora.grpc.enabled=true","agora.grpc.port=0","agora.grpc.token=bad")
+                .run(c->assertThat(c).hasFailed().getFailure().hasRootCauseInstanceOf(IllegalArgumentException.class));
     }
 }

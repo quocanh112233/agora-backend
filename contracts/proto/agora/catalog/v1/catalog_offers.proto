@@ -1,0 +1,23 @@
+syntax = "proto3";
+package agora.catalog.v1;
+option java_package = "com.agora.contracts.catalog.v1";
+option java_multiple_files = true;
+
+service CatalogOffers {
+  rpc ResolveOffers(ResolveOffersRequest) returns (ResolveOffersResponse);
+}
+message ResolveOffersRequest { repeated string sku_ids = 1; }
+message OfferImage { string url = 1; int32 width = 2; int32 height = 3; }
+message CartOffer {
+  string product_id = 1;
+  string sku_id = 2;
+  string shop_id = 3;
+  string shop_name = 4;
+  string product_name = 5;
+  string sku_label = 6;
+  int64 price_vnd = 7;
+  int32 net_weight_grams = 8;
+  bool in_stock = 9;
+  OfferImage thumbnail = 10;
+}
+message ResolveOffersResponse { repeated CartOffer offers = 1; }

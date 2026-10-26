@@ -21,9 +21,11 @@
     <modules>
         <module>libraries/identity-contract</module>
         <module>libraries/merchant-contract</module>
+        <module>libraries/catalog-contract</module>
         <module>services/identity-service</module>
         <module>services/merchant-service</module>
         <module>services/catalog-service</module>
+        <module>services/commerce-service</module>
     </modules>
 
     <properties>

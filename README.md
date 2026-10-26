@@ -4,7 +4,7 @@ Backend marketplace B2B2C nông sản và thủy hải sản cho portfolio cá n
 
 ## Hiện trạng
 
-Identity chạy Java 25, Spring Boot 4.1.1, Maven Wrapper 3.9.16, JDBC/Flyway. Đã có đăng ký USER, session login/logout, `/me`, CSRF, Argon2id và gRPC xác thực nội bộ. Merchant là ứng dụng/database riêng: tạo/sửa shop nháp, gửi duyệt, admin liệt kê/phê duyệt/từ chối và sửa hồ sơ bị từ chối để gửi lại. Cả 11 thao tác onboarding trong OpenAPI đã có implementation. Catalog M2a sản phẩm/SKU và M2b1 ảnh Cloudinary đã nghiệm thu; M2b2 công bố/ẩn đã có backend/UI và gates trước pause; sau resume frontend đã PASS build/lint/typecheck, 86 unit và 144 fixture gồm 19 regression revalidation. P2 đã sửa/review chấp nhận, normal live 4/4 và media/publication live 2/2 PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau cleanup đúng hai asset mới. Payment/Feedback chưa triển khai.
+Identity chạy Java 25, Spring Boot 4.1.1, Maven Wrapper 3.9.16, JDBC/Flyway. Đã có đăng ký USER, session login/logout, `/me`, CSRF, Argon2id và gRPC xác thực nội bộ. Merchant là ứng dụng/database riêng: tạo/sửa shop nháp, gửi duyệt, admin liệt kê/phê duyệt/từ chối và sửa hồ sơ bị từ chối để gửi lại. Cả 11 thao tác onboarding trong OpenAPI đã có implementation. Catalog M2a sản phẩm/SKU và M2b1 ảnh Cloudinary đã nghiệm thu; M2b2 công bố/ẩn đã có backend/UI và gates trước pause; sau resume frontend đã PASS build/lint/typecheck, 86 unit và 144 fixture gồm 19 regression revalidation. P2 đã sửa/review chấp nhận, normal live 4/4 và media/publication live 2/2 PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau cleanup đúng hai asset mới. Commerce là service thứ tư đã có implementation giỏ M3a; Payment/Feedback chưa triển khai.
 
 Máy local dùng PostgreSQL 16 tại 127.0.0.1:5432: `agora` cho Identity, `agora_merchant` cho Merchant, `agora_catalog` cho Catalog. Không cần thêm container cho dữ liệu local. Integration tests dùng PostgreSQL Docker biệt lập, không reset/truncate database local. Maven đã cài trong thư mục người dùng; ưu tiên wrapper trong repository.
 
@@ -24,6 +24,16 @@ Public shop chỉ `{id,name}`; tên tối đa120codepoints, tên legacy chỉ kh
 
 Main báo root verify **25/10/2026 20:50:38 +07:00 BUILD SUCCESS,185tests (13Identity+59Merchant+113Catalog),0fail/error/skip**. Frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront; proof M2c1/M2b2 không thay proof storefront. [Demo storefront](docs/demo-storefront.md), [plan](tasks/slice-2-storefront.md). Chưa có reservation/FEFO allocation, checkout, tích hợp GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ.
 
+## Commerce M3a — giỏ hàng theo tài khoản
+
+Commerce HTTP 127.0.0.1:8084, PostgreSQL agora_commerce/schema commerce; [V1](services/commerce-service/src/main/resources/db/migration/V1__commerce_cart.sql) lưu giỏ/dòng hàng/request. Đúng ba operation trong [OpenAPI giỏ 1.0.0](contracts/openapi/commerce-cart.v1.openapi.json): GET /api/v1/me/cart, PUT và DELETE /api/v1/me/cart/items/{skuId}. Người mua đăng nhập có giỏ nhiều shop, tối đa 20 SKU/1–99 gói mỗi dòng; PUT đặt số lượng tuyệt đối. Giỏ không giữ tồn hoặc checkout.
+
+GET lấy current offers qua [CatalogOffers.ResolveOffers](contracts/proto/agora/catalog/v1/catalog_offers.proto) ở 127.0.0.1:9093; hàng mất public giữ refs với offer:null. cartId ổn định theo account đã xác minh; cartId từ tài khoản cũ bị 409 trước replay/write. Mutation kiểm Identity/CSRF, expectedVersion và UUID key giữ tối thiểu 7 ngày. PUT tra replay trước Catalog rồi kiểm lại dưới row lock; DELETE không gọi Catalog. Sau 200 phải GET mới; refresh 503 chỉ giữ cartId/version cùng refs tối thiểu để xóa, không dùng giá/tên cũ như hiện tại.
+
+Main xác minh root verify ngày **26/10/2026 lúc 10:55:16 +07:00: BUILD SUCCESS, 226 tests = 13 Identity + 59 Merchant + 130 Catalog + 24 Commerce; 0 fail/error/skip**. Commerce 24 = 6 domain + 15 API + 3 service; Catalog thêm 17 = 12 gRPC + 4 SQL + 1 configuration. Đây là bằng chứng backend do main cung cấp; **M3a đã nghiệm thu local ngày 26/10: frontend 136 unit, 243 fixture production, 5 normal live và 1 cart/provider live đạt; hai lỗi review đã sửa và re-review CLEAR**.
+
+[Demo giỏ](docs/demo-cart.md), [plan M3a](tasks/slice-3-cart.md), [mô hình dữ liệu](docs/architecture/data-model.md#commerce-m3a).
+
 ## Chạy local
 
 Chạy các lệnh từ thư mục backend. .env local đã có và bị Git ignore; khi clone mới chỉ copy .env.example nếu chưa có .env, rồi đặt credential của mình. Không commit .env.
@@ -38,7 +48,7 @@ chmod 600 .env
 ./mvnw -B -ntp -Dagora.test.postgres-image=postgres:16 verify
 
 # Cài contracts vào Maven local trước khi chạy service độc lập
-./mvnw -B -ntp -pl libraries/identity-contract,libraries/merchant-contract -am install
+./mvnw -B -ntp -pl libraries/identity-contract,libraries/merchant-contract,libraries/catalog-contract -am install
 
 # Chạy Identity với PostgreSQL local và .env
 ./mvnw -pl services/identity-service spring-boot:run
@@ -48,9 +58,14 @@ chmod 600 .env
 
 # Terminal thứ ba; Merchant cũng phải bật gRPC
 ./mvnw -pl services/catalog-service spring-boot:run
+
+# Terminal thứ tư; chỉ khi đã chọn DB Commerce biệt lập và bật Catalog gRPC
+./mvnw -pl services/commerce-service spring-boot:run
 ```
 
-Service đọc .env tự động từ cwd backend; không cần source password vào shell. Health: Identity http://127.0.0.1:8081/actuator/health, Merchant http://127.0.0.1:8082/actuator/health, Catalog http://127.0.0.1:8083/actuator/health. Ctrl+C để dừng service. Identity dùng `SERVER_PORT`, Merchant dùng `MERCHANT_SERVER_PORT`, Catalog dùng `CATALOG_SERVER_PORT`. Khi đổi thư mục chạy jar, bảo đảm .env được đọc từ đúng cwd.
+Commerce mặc định trỏ agora_commerce; chưa xác nhận đã tạo/migrate database đó trên native. Main sở hữu fixture bốn database để demo/test; xem [chuẩn bị demo giỏ](docs/demo-cart.md#chuẩn-bị), không khởi động app vào native để tạo proof.
+
+Service đọc .env tự động từ cwd backend; không cần source password vào shell. Health: Identity http://127.0.0.1:8081/actuator/health, Merchant http://127.0.0.1:8082/actuator/health, Catalog http://127.0.0.1:8083/actuator/health, Commerce http://127.0.0.1:8084/actuator/health. Ctrl+C để dừng service. Identity dùng `SERVER_PORT`, Merchant dùng `MERCHANT_SERVER_PORT`, Catalog dùng `CATALOG_SERVER_PORT`; Commerce dùng `COMMERCE_SERVER_PORT` và `COMMERCE_DB_NAME`. Khi đổi thư mục chạy jar, bảo đảm .env được đọc từ đúng cwd.
 
 V1–V3 đã tạo schema Identity, account/role và Spring Session JDBC. Merchant có V1 shop/audit/idempotency và V2 review; Catalog có V1 product/SKU/audit/idempotency, V2 image uploads/relations/media requests, V3 visibility, V4 inventory_lots/inventory_requests/inventory_audit cùng bảo vệ SKU có lịch sử và V5 partial index PUBLISHED(created_at DESC,id DESC). Flyway áp dụng vào database tương ứng khi app chạy. Nghiệm thu dùng database Docker biệt lập, không phải yêu cầu migrate native database. Migration đã áp dụng không được sửa; thay đổi tiếp bằng migration mới. Credential `postgres` hiện chỉ dành cho local theo yêu cầu, không dùng cho deployment.
 
@@ -60,7 +75,7 @@ Xem [hướng dẫn demo mở shop](docs/demo-onboarding.md) để chuẩn bị 
 
 Browser gọi HTTP cùng origin qua Next rewrites. Cookie `AGORA_SESSION` có HttpOnly/SameSite=Lax/Path=/, idle 30 phút. Lấy `/api/v1/auth/csrf` trước mutation và lấy lại sau login/logout. Đăng ký không tự đăng nhập và không nhận role do client khai báo. Không lưu phiên vào localStorage/Zustand persist.
 
-`IDENTITY_GRPC_ENABLED=true` bật listener `127.0.0.1:9091`; Merchant/Catalog kiểm tra phiên qua [SessionIdentity v1](contracts/proto/agora/identity/v1/session_identity.proto). `MERCHANT_GRPC_ENABLED=true` bật Merchant `127.0.0.1:9092`; Catalog xác minh shop ACTIVE qua [MerchantAccess v1](contracts/proto/agora/merchant/v1/merchant_access.proto). Ba app dùng cùng `INTERSERVICE_TOKEN` ngẫu nhiên 32–256 ký tự URL-safe từ .env. File local hiện đã có token ngẫu nhiên; `.env.example` để trống, không có credential mặc định. Không in hoặc commit token.
+`IDENTITY_GRPC_ENABLED=true` bật listener `127.0.0.1:9091`; Merchant/Catalog kiểm tra phiên qua [SessionIdentity v1](contracts/proto/agora/identity/v1/session_identity.proto). `MERCHANT_GRPC_ENABLED=true` bật Merchant `127.0.0.1:9092`; Catalog xác minh shop ACTIVE qua [MerchantAccess v1](contracts/proto/agora/merchant/v1/merchant_access.proto). `CATALOG_GRPC_ENABLED=true` bật Catalog 127.0.0.1:9093 cho CatalogOffers; Commerce kiểm session qua Identity và đọc offers qua Catalog. Bốn app dùng cùng `INTERSERVICE_TOKEN` ngẫu nhiên 32–256 ký tự URL-safe từ .env. File local hiện đã có token ngẫu nhiên; `.env.example` để trống, không có credential mặc định. Không in hoặc commit token.
 
 gRPC plaintext chỉ dành cho loopback local. Trước khi triển khai các app qua network/container riêng phải có TLS/mTLS và policy nội bộ; không chỉ mở rộng bind. HTTPS phải bật `SESSION_COOKIE_SECURE=true`. Rate limit bộ nhớ chỉ phù hợp một instance; Next proxy local có thể khiến nhiều người dùng dùng chung quota IP. Xem [ghi chú bảo mật](docs/architecture/identity-security.md).
 

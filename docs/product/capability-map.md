@@ -4,6 +4,8 @@ Trạng thái: bản nháp để review. Bộ tài liệu gồm ranh giới nghi
 
 Cập nhật implementation25/10/2026: M1, Catalog sản phẩm/SKU/ảnh/visibility và M2c1 quản lý lô đã nghiệm thu local. M2c2 đã triển khai public browse/detail qua đúng hai GET, đã nghiệm thu local ngày 25/10/2026; backend proof theo ngày ở [demo storefront](../demo-storefront.md), frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. Các khả năng checkout/giữ hàng/GHN/VNPAY/review/Q&A trong bản đồ bên dưới vẫn là đích.
 
+Cập nhật 26/10/2026: Commerce là service thứ tư đã có giỏ theo account, nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng. Current offers do Catalog xác minh qua RPC9093; giỏ không giữ tồn/checkout. Root backend 226 tests đạt theo main 10:55:16 +07:00; giỏ M3a đã nghiệm thu local ngày 26/10; checkout chưa triển khai nên chưa nghiệm thu toàn UC-06. [Demo giỏ](../demo-cart.md), [plan M3a](../../tasks/slice-3-cart.md).
+
 ## 1. Mục tiêu và phạm vi đã xác nhận
 
 Website marketplace B2B2C cho nông sản và thủy hải sản, phục vụ portfolio cá nhân. Người bán dự kiến là hợp tác xã, cơ sở sản xuất và cửa hàng; khách mua là cá nhân. Người dùng làm một mình, không đặt hạn chót cố định.
@@ -20,7 +22,7 @@ Tiêu chí thành công: hoàn thành một luồng mua hàng có thể demo, b�
 | Checkout | Một shop mỗi lần thanh toán |
 | Vận hành | Docker, GitHub Actions |
 
-Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md) và [ADR-0003](../decisions/0003-postgresql-only.md). Hiện có Identity/Merchant/Catalog; Commerce/Payment/Feedback và deployment chưa triển khai.
+Nền tảng: Java 25/Spring Boot 4.1.1, Maven Wrapper 3.9.16, Next.js 16/TypeScript/npm; session JDBC và cookie HttpOnly. Xem [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md) và [ADR-0003](../decisions/0003-postgresql-only.md). Hiện có Identity/Merchant/Catalog/Commerce; Commerce mới triển khai giỏ M3a. Payment/Feedback, checkout và deployment chưa triển khai.
 
 ## 2. Mặc định thiết kế đề xuất
 
@@ -80,6 +82,8 @@ Thứ tự làm rõ hợp đồng: Identity và Payment; Merchant; Catalog/Inven
 Đích có 6 ứng dụng theo ADR-0002; Identity bootstrap trước, Merchant tách riêng. Context không bắt buộc là process riêng. Fulfillment có adapter GHN riêng dù chạy cùng Commerce. Catalog/Inventory được nhóm ở MVP để làm rõ transaction cục bộ cho SKU/giá và giữ hàng; đánh giá lại khi nghiệp vụ phát triển.
 
 Có thể dùng chung instance PostgreSQL nhưng tách database/role theo ứng dụng. Context cùng ứng dụng dùng interface module và bảng/schema có chủ sở hữu; không đọc/ghi trực tiếp dữ liệu service khác hoặc dùng foreign key xuyên service.
+
+M3a đã có [ba HTTP operation giỏ](../../contracts/openapi/commerce-cart.v1.openapi.json) và [CatalogOffers.ResolveOffers](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) đọc giá/quy cách/stock boolean hiện tại. Các hợp đồng reservation/checkout bên dưới vẫn chưa triển khai.
 
 ## 5. Hợp đồng cần đặc tả tiếp
 

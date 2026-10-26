@@ -24,6 +24,12 @@ Public browse/detail M2c2 đã triển khai, đã nghiệm thu local ngày 25/10
 
 Trạng thái lô không thay phép tính tồn và kiểm tra thời gian hiện tại. Scheduler cập nhật EXPIRED chậm không được khiến checkout bán hàng hết hạn. Mở khóa không được làm lô hết hạn thành đủ điều kiện.
 
+## Giỏ hàng M3a — đã triển khai, chưa giữ hàng
+
+Cart lưu account/version/items trong Commerce, không có HELD/ALLOCATED/Order. Thêm/đổi quantity tuyệt đối1–99 hoặc xóa dòng thực sự thay đổi tăng version một lần; PUT quantity không đổi/DELETE dòng đã thiếu là no-op với version đúng. Tổng tối đa 20 SKU, nhiều shop. GET chưa có row trả version 0 không tạo DB row; giỏ đã xóa hết vẫn giữ version.
+
+Auth/CSRF/cartId theo account kiểm trước replay/write; version bảo vệ ý định khác nhau, UUID key/hash7 ngày bảo vệ cùng ý định. PUT preflight replay trước Catalog rồi recheck dưới row lock; DELETE không cần Catalog. Replay trả version lịch sử, không tăng version lần hai; GET mới cho current offers. Mất public giữ offer:null, không tự xóa dòng hoặc tạo reservation. [API](../architecture/api-conventions.md#7-commerce-m3a), [demo/proof](../demo-cart.md). Root backend26/10 đạt; frontend/live/review còn chờ.
+
 ## 3. Reservation
 
 ```mermaid

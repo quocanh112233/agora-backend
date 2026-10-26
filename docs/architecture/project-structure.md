@@ -1,6 +1,6 @@
 # Agora — Cấu trúc thư mục
 
-Trạng thái ngày 24/10/2026: Identity, Merchant, Catalog M2a và ảnh M2b1 đã nghiệm thu. M2b2 công bố/ẩn có backend/UI và gates trước pause, sau resume frontend build/lint/typecheck, 86 unit và 144 fixture (19 regression revalidation) đã PASS; hai asset trước pause provider lookup all_missing=true/exit 0. P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Chưa có production/CI run. M2c1 đã thêm quản lý lô hàng trong Catalog. Commerce/Payment/Feedback là đích cho lát cắt sau. backend/frontend là hai repo Git riêng. Không tạo repo thứ ba ở agora/ hoặc phụ thuộc filesystem của repo còn lại khi build. Tất cả service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
+Trạng thái 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local đến M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback, fulfillment/notification chưa triển khai. backend/frontend là hai repo riêng; không tạo repo thứ ba hoặc phụ thuộc filesystem repo kia khi build. Mọi service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
 
 ## 1. Repo backend
 
@@ -12,12 +12,13 @@ backend/
 │   ├── identity-service/           # Đã có
 │   ├── merchant-service/           # Đã có, tách riêng
 │   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô và public browse/detail
-│   ├── commerce-service/
+│   ├── commerce-service/           # Giỏ M3a, PostgreSQL riêng, HTTP 8084
 │   ├── payment-service/
 │   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
 ├── libraries/
 │   ├── identity-contract/          # Sinh Java/protobuf từ contract Identity
-│   └── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
+│   ├── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
+│   └── catalog-contract/           # Sinh Java/protobuf cho CatalogOffers v1
 ├── contracts/
 │   ├── openapi/                    # Nguồn HTTP contract; JSON OpenAPI
 │   ├── proto/                      # Nguồn .proto khi có service cần giao tiếp
@@ -33,7 +34,7 @@ backend/
 └── .github/workflows/
 ```
 
-Reactor hiện có identity-contract, merchant-contract, identity-service, merchant-service và catalog-service. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Các đường dẫn service/infra còn lại trong cây là thiết kế, không mặc định đã tạo file hoặc database.
+Reactor hiện có ba contract module identity-contract/merchant-contract/catalog-contract và bốn service identity-service/merchant-service/catalog-service/commerce-service. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Commerce cấu hình agora_commerce/schema commerce, fixture dùng database test riêng; chưa xác nhận tạo/migrate native. Các đường dẫn Payment/Feedback/infra trong cây là thiết kế, không mặc định đã tạo file hoặc database.
 
 ## 2. Một service theo DDD
 
@@ -130,3 +131,9 @@ Catalog thêm `application/StorefrontQuery`, `StorefrontService`, `StorefrontSto
 [Contract public riêng](../../contracts/openapi/catalog-storefront.v1.openapi.json) chỉ có hai GET list/detail, tách seller/media/inventory; projection không dùng nguyên Product/Shop private. Các test storefront hiện có `StorefrontQueryTests`, `StorefrontApiTests`, `StorefrontServiceTests` và Merchant `MerchantPublicShopGrpcTests`; [demo](../demo-storefront.md) ghi backend proof25/10, frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. M2c2 đã nghiệm thu local; review/Q&A của UC-05 chưa triển khai.
 
 Contract riêng `contracts/openapi/catalog-inventory.v1.openapi.json`; frontend ghim snapshot/type, route `/seller/products/[productId]/lots`, feature `catalog-inventory`, fixtures và live spec. [Demo](../demo-inventory.md) và [proof](../../../frontend/docs/catalog-inventory-proof.md) ghi177fixture/98unit/5live cùng giới hạn nghiệm thu local.
+
+## M3a — thành phần đã triển khai
+
+[Commerce](../../services/commerce-service/src/main/java/com/agora/commerce/CommerceApplication.java) giữ house layers: domain Cart/CartFailure; application CartService/CartStore/IdentityAccess/CatalogOffers; inbound CartController/ApiErrors/metadata; outbound JdbcCartStore/GrpcIdentityAccess/GrpcCatalogOffers và gRPC wiring. [V1](../../services/commerce-service/src/main/resources/db/migration/V1__commerce_cart.sql) tạo ba bảng commerce. Không phụ thuộc JAR service khác hoặc thêm common library.
+
+Catalog thêm [CatalogOffersService](../../services/catalog-service/src/main/java/com/agora/catalog/application/CatalogOffersService.java), batch projection StorefrontStore/JdbcStorefrontStore và optional [CatalogGrpcServer](../../services/catalog-service/src/main/java/com/agora/catalog/configuration/CatalogGrpcServer.java) 9093. [Proto](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) sinh Java qua [catalog-contract](../../libraries/catalog-contract/pom.xml). HTTP Catalog giữ ranh giới seller/public. [Demo giỏ](../demo-cart.md) ghi backend proof và phần còn chờ.

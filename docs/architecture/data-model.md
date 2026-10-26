@@ -2,6 +2,8 @@
 
 Trạng thái ngày 24/10/2026: Catalog đã có V1 product/SKU, V2 ảnh và V3 visibility trên fixture PostgreSQL; M2b2 đã có 144 fixture frontend PASS sau sửa revalidation, P2 fixed/review accepted, 4 normal live và 2 media/publication live mới PASS; M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation, final DRAFT/version 2 và HIDDEN/version 7, independent exact provider lookup 2 asset all_missing=true/exit 0; cleanup hai asset trước pause đã được main xác minh. Identity có migration V1–V3 cho schema/account/role/session. Merchant có V1 shop/audit/idempotency và V2 shop_reviews; create/edit/submit/review/resubmit đã triển khai và kiểm thử trên PostgreSQL riêng. Identity và Merchant tách service/database theo [ADR-0002](../decisions/0002-separate-identity-merchant.md).
 
+Cập nhật 26/10/2026: Commerce là service thứ tư đã triển khai, có V1 cart tại agora_commerce/schema commerce. Root 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. [Demo giỏ](../demo-cart.md) ghi proof và giới hạn.
+
 Toàn bộ service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md), gồm Feedback. Feedback ưu tiên bảng quan hệ, JSONB chỉ bổ sung metadata khi cần; địa chỉ và idempotency snapshot JSONB hiện có của Merchant giữ nguyên. Cloudinary tiếp tục giữ file ảnh.
 
 ## 1. Quy ước
@@ -89,12 +91,30 @@ FK SKU bổ sung UNIQUE(id,product_id,shop_id); unique(product_id,position) DEFE
 
 Browse đọc21candidate, chỉ xét20và xác minh Merchant tối đa4batch×5ID. Cursor theo candidate cuối đã xét; trang rỗng vẫn có thể còn nextCursor, không total count. Public chỉ trả shop `{id,name}` tối đa120codepoints, omit legacy blank. Product/SKU `inStock` là EXISTS lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh, on_hand-held-allocated>0; không trả exact count, mã/ngày lô, version/audit hoặc upload intent. [Allowlist và trường private](catalog-security.md#storefront-m2c2--public-projection), [demo/proof backend](../demo-storefront.md). Không reservation/FEFO allocation hoặc đảm bảo mua/giao; frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront.
 
-## 3. Dữ liệu các service sau
+### Commerce M3a
+
+[V1__commerce_cart.sql](../../services/commerce-service/src/main/resources/db/migration/V1__commerce_cart.sql) thuộc agora_commerce/schema commerce. Cấu hình không chứng minh đã tạo/migrate native; kiểm thử dùng PostgreSQL biệt lập.
+
+| Bảng | Dữ liệu và ràng buộc |
+| --- | --- |
+| commerce.carts | account_id UUID PK, version BIGINT 0..9007199254740991 |
+| commerce.cart_items | account_id FK carts cục bộ, sku_id/product_id UUID, quantity integer 1..99; PK(account_id,sku_id) |
+| commerce.cart_requests | actor_id FK carts cục bộ, key UUID, operation PUT_ITEM/DELETE_ITEM, request_hash SHA-256 hex, response_version, created_at timestamptz; PK(actor_id,key), index created_at |
+
+Account/product/SKU là refs xuyên service, không FK Identity/Catalog. Không lưu shop/giá/tên/ảnh/stock snapshot trong giỏ. Application giới hạn20 SKU tổng cộng, cho phép nhiều shop. cartId opaque ổn định suy ra từ account đã xác minh, không phải credential hay cột owner public.
+
+GET chưa có cart trả version 0/items rỗng, không tạo row; cart đã xóa hết dòng vẫn giữ version. Version/items đọc trong REPEATABLE_READ ngắn rồi đóng transaction trước RPC current offers. Missing/ineligible offer:null; RPC lỗi503 toàn cart, không dùng giá cũ.
+
+Mutation insert cart ON CONFLICT rồi SELECT FOR UPDATE; recheck replay theo actor/key, so operation/hash, kiểm expectedVersion/cap, ghi item/version/request result cùng transaction. Khác payload 422; version/cap409. PUT quantity không đổi hoặc DELETE dòng đã thiếu là no-op nếu version đúng, vẫn lưu response key. Mọi lỗi rollback toàn transaction; auth/CSRF/cartId kiểm trước replay/write.
+
+PUT preflight replay trước Catalog; lookup lỗi/không khả dụng cũng tra lại replay để bắt original commit đồng thời. DELETE không cần Catalog. Key giữ tối thiểu 7 ngày; cleanup mỗi giờ xóa record cũ hơn 7 ngày, không bảo đảm replay sau dọn. Replay trả version gốc, cần GET mới. [API](api-conventions.md#7-commerce-m3a), [demo](../demo-cart.md). Giỏ không tạo Reservation/Order hoặc đổi stock counters.
+
+## 3. Dữ liệu chưa triển khai
 
 | Service | Aggregate/data chính | Bất biến cần giữ |
 |---|---|---|
 | Catalog | Product, SKU, InventoryLot, Reservation | Product thuộc shop; giữ toàn giỏ hoặc không; available = on_hand - held - allocated không âm; lô đủ hạn |
-| Commerce | Cart, Order, Cancellation, QualityClaim; Shipment trong Fulfillment | Một shop/đơn; snapshot; claim chặn hoàn tất; raw GHN và trạng thái nội bộ riêng |
+| Commerce | Order, Cancellation, QualityClaim; Shipment trong Fulfillment | Một shop/đơn; snapshot; claim chặn hoàn tất; raw GHN và trạng thái nội bộ riêng |
 | Payment | PaymentAttempt, ProviderTransaction, Refund, LedgerEntry, Settlement | Unique provider transaction; tiền đã thu không mất vì hủy; tổng refund thành công + pending không vượt captured |
 | Feedback (PostgreSQL) | Review, Question, Answer, SellerReply, moderation/audit | Unique order_line_id cho review; rating 1–5; quyền xác minh qua Commerce; FK cục bộ; phân trang nội dung riêng |
 

@@ -38,6 +38,10 @@ Tạo owner/shop, ADMIN riêng duyệt ACTIVE; lưu product, upload và attach �
 
 Chưa có reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ. `inStock` không hứa giữ/mua/giao hàng hay chứng minh an toàn thực phẩm. Chuẩn bị/cleanup ảnh và final live proof theo plan hiện có do main thực hiện; không suy ra provider cleanup từ việc UI ẩn sản phẩm.
 
+## Liên kết giỏ hàng M3a ngày 26/10
+
+Commerce đã thêm giỏ theo account qua [ba HTTP operation riêng](../contracts/openapi/commerce-cart.v1.openapi.json); Catalog cung cấp [ResolveOffers](../contracts/proto/agora/catalog/v1/catalog_offers.proto) nội bộ9093. Giỏ nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng không giữ tồn/checkout. [Demo giỏ](demo-cart.md) ghi root backend 226 tests đạt theo main26/10 lúc 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Bằng chứng storefront25/10 bên dưới giữ phạm vi M2c2.
+
 ## Bằng chứng backend ngày25/10/2026
 
 Main báo root `./mvnw -B -ntp -Dagora.test.postgres-image=postgres:16 verify` kết thúc **20:50:38 +07:00 BUILD SUCCESS**, **185tests:13Identity+59Merchant+113Catalog**, **0fail/error/skip**. Catalog mới20=4query+13API+3service, gồm HTTP DB outage trả503 an toàn và SQL syntax vẫn500. StorefrontService map lỗi DB public ở lớp hẹp; không đổi private error mapping. Đây là backend proof do main cung cấp, không phải lượt chạy của docs worker hoặc proof frontend/live/review. Main cung cấp final proof và quyết định nghiệm thu toàn lát cắt theo plan canonical.

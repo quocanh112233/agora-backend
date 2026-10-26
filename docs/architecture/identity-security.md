@@ -46,6 +46,14 @@ RPC gia hạn idle timeout bằng update có điều kiện theo `session_id` hi
 
 `INTERSERVICE_TOKEN` + loopback là cấu hình local, không phải biện pháp thay TLS/mTLS cho deployment nhiều máy. Rate limit phân tán, giới hạn tải production và quản lý/luân chuyển secret còn thuộc bước triển khai thực tế.
 
+## Commerce M3a — danh tính của giỏ
+
+Commerce gọi ResolveSession cho [cả ba HTTP cart operation](../../contracts/openapi/commerce-cart.v1.openapi.json), deadline 2 giây/không retry. PUT/DELETE kiểm masked CSRF trước replay; cookie AGORA_SESSION trùng bị từ chối. Account khóa/logout/expired không được dùng replay để vượt quyền; Commerce không đọc session/Identity tables.
+
+cartId opaque ổn định theo account đã xác minh, không phải credential. Mutation kiểm cartId trước replay/write; tab giữ intent account cũ nhận409 CART_CHANGED dù version hai giỏ trùng. Owner lấy từ Identity, không từ JSON. DELETE chỉ xóa SKU trong giỏ account hiện tại. [CartService](../../services/commerce-service/src/main/java/com/agora/commerce/application/CartService.java), [controller](../../services/commerce-service/src/main/java/com/agora/commerce/adapter/inbound/CartController.java).
+
+Client cần xóa dữ liệu/intent riêng khi401/403/đổi cartId và bỏ response cũ. Sau refresh 503 chỉ giữ cartId/version cùng productId/skuId/quantity của chính giỏ để DELETE, không dùng offer cũ như hiện tại. [Demo giỏ](../demo-cart.md) phân biệt backend proof với frontend/live/review còn chờ.
+
 ## Nguồn đối chiếu
 
 - [Spring Security: lưu và xoay session](https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html)

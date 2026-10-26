@@ -26,6 +26,10 @@ server:
 
 agora:
   internal-token: ${INTERSERVICE_TOKEN:}
+  grpc:
+    enabled: ${CATALOG_GRPC_ENABLED:false}
+    port: ${CATALOG_GRPC_PORT:9093}
+    token: ${INTERSERVICE_TOKEN:}
 
 management:
   endpoints:

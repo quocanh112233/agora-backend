@@ -1,5 +1,13 @@
 # Agora — Kế hoạch triển khai
 
+## Cập nhật M3a ngày 26/10 — giỏ hàng đã có implementation
+
+Canonical tracker hiện tại slice-3-cart; [plan M3a](slice-3-cart.md), [OpenAPI giỏ](../contracts/openapi/commerce-cart.v1.openapi.json), [CatalogOffers proto](../contracts/proto/agora/catalog/v1/catalog_offers.proto), [demo giỏ](../docs/demo-cart.md). Commerce là service thứ tư: HTTP 8084, PostgreSQL agora_commerce/schema commerce/V1; Catalog thêm optionalgRPC9093 và library catalog-contract. Giỏ đăng nhập nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng; GET current offers, PUT tuyệt đối, DELETE độc lập Catalog. cartId ràng buộc account, auth/CSRF trước replay, version/key7 ngày và preflight+row-lock replay; refresh lỗi chỉ giữ refs tối thiểu để xóa. Không giữ tồn/reservation/checkout.
+
+Main xác minh root verify ngày **26/10/2026 lúc 10:55:16 +07:00: BUILD SUCCESS, 226 tests = 13 Identity + 59 Merchant + 130 Catalog + 24 Commerce; 0 fail/error/skip**. Commerce 24 = 6 domain + 15 API + 3 service; Catalog thêm 17 = 12 gRPC + 4 SQL + 1 configuration. Đây là bằng chứng backend do main cung cấp; **M3a đã nghiệm thu local ngày 26/10: frontend 136 unit, 243 fixture production, 5 normal live và 1 cart/provider live đạt; hai lỗi review đã sửa và re-review CLEAR**.
+
+M3b Catalog reservation FEFO, M3c Commerce checkout một shop/GHN quote, M3d Payment/VNPAY vẫn là bước sau theo plan M3a. Chưa mở implementation các phần đó; không tạo checklist/tracker song song. Các mốc M1/M2 bên dưới là lịch sử theo ngày.
+
 Trạng thái ngày 24/10/2026 sau resume 15:10: M1 tài khoản/mở shop/admin review, Catalog M2a và ảnh M2b1 đã nghiệm thu local. M2b2 công bố/ẩn đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00; P2 đã sửa/review chấp nhận, normal live 4/4 và media/publication live 2/2 PASS; hai asset mới đã xác minh cleanup DB/provider; frontend build/lint/typecheck, 86 unit và 144 fixture sau sửa đã PASS, cleanup hai asset trước pause đã xác minh. Người dùng đã commit M2b2 backend `ff27aaa` và frontend `875863b`; không suy ra đã push hoặc CI đã chạy. [ADR-0002](../docs/decisions/0002-separate-identity-merchant.md) thay lựa chọn gộp service; [ADR-0003](../docs/decisions/0003-postgresql-only.md) chốt PostgreSQL cho mọi service. Không yêu cầu duyệt lại lựa chọn thông thường; cần hỏi khi phát sinh tài khoản ngoài/chi phí/publish ngoài phạm vi.
 
 ## Cập nhật M2c1 sau resume20:23 ngày24/10
@@ -20,7 +28,7 @@ Main báo root verify **25/10/2026 20:50:38 +07:00 BUILD SUCCESS,185tests=13Iden
 
 [Use case](../docs/product/use-cases.md), [state machines](../docs/product/state-machines.md), [kiến trúc](../docs/architecture/architecture-overview.md), [cấu trúc](../docs/architecture/project-structure.md), [dữ liệu](../docs/architecture/data-model.md), [OpenAPI](../contracts/openapi/identity-merchant.v1.openapi.json).
 
-Task canonical: claude-mem work_state; list hiện tại `slice-2-storefront`, các list trước gồm `slice-1-onboarding`, `slice-2-catalog` và `slice-2-inventory`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
+Task canonical: claude-mem work_state; list hiện tại `slice-3-cart`, các list trước gồm `slice-2-storefront`, `slice-1-onboarding`, `slice-2-catalog` và `slice-2-inventory`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
 
 ## 2. Lát cắt 1
 
@@ -80,7 +88,7 @@ M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; M2c2 storefront
 | Mốc | Luồng hoàn chỉnh | Điều kiện chú ý |
 |---|---|---|
 | M2 | Shop hoạt động đăng sản phẩm, ảnh Cloudinary và lô; khách tìm/xem | Thêm Catalog, gRPC auth/merchant, FE catalog, kiểm tra quyền ảnh |
-| M3 | Giỏ một shop, GHN báo giá, giữ tồn, tạo đơn | Kiểm tra GHN staging/địa chỉ sớm; tồn cuối và hết hạn |
+| M3 | Giỏ nhiều shop; checkout một shop, GHN báo giá, giữ tồn, tạo đơn | Kiểm tra GHN staging/địa chỉ sớm; tồn cuối và hết hạn |
 | M4 | VNPAY sandbox, GHN tạo/đồng bộ, nhận hàng | Tiền muộn, timeout, webhook, RabbitMQ/outbox, refund |
 | M5 | Review/Q&A/reply PostgreSQL, claim/refund, đối soát mô phỏng | Feedback sở hữu agora_feedback/Flyway; unique dòng đơn, rating 1–5, quyền đã mua, hạn mức hoàn, hàng hỏng không nhập tự động |
 | M6 | Hoàn thiện Identity/quản trị, ảnh avatar, demo/CI/README portfolio | Khôi phục mật khẩu có token dùng một lần; bổ sung tính năng còn lại từ UC |

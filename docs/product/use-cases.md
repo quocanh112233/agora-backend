@@ -52,8 +52,10 @@ Implementation M2c2 ngày25/10/2026: đã có hai GET public `/api/v1/products` 
 
 ## UC-06 — Giỏ hàng và checkout một shop
 
+Implementation M3a ngày 26/10/2026: Commerce đã có GET giỏ/PUT quantity tuyệt đối/DELETE dòng theo [contract riêng](../../contracts/openapi/commerce-cart.v1.openapi.json). Giỏ theo account lưu PostgreSQL, nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng. GET current offers; mất public giữ refs với offer:null, hết tồn inStock=false và PUT mới 409. cartId ràng buộc account, mutation CSRF/version/key7 ngày, replay trả version gốc và cần GET mới. DELETE độc lập Catalog, vẫn cần Identity/CSRF/version; refresh 503 chỉ giữ refs tối thiểu để xóa, không dùng giá/tên cũ. Giỏ không giữ tồn hoặc checkout. Root 226 tests đạt theo main 10:55:16 +07:00; giỏ M3a đã nghiệm thu local ngày 26/10; checkout chưa triển khai nên chưa nghiệm thu toàn UC-06. [Demo giỏ](../demo-cart.md), [plan](../../tasks/slice-3-cart.md).
+
 - Tác nhân: người mua đăng nhập.
-- Tiền điều kiện: shop hoạt động; SKU cùng shop; địa chỉ nhận hợp lệ cho tích hợp.
+- Tiền điều kiện checkout: shop hoạt động; SKU cùng shop; địa chỉ nhận hợp lệ cho tích hợp. Giỏ M3a được chứa nhiều shop.
 - Luồng: chọn hàng của một shop, địa chỉ nhận, tính kiện/báo giá GHN, xác nhận tổng tiền, giữ hàng và tạo đơn chờ thanh toán.
 - AC-06.1: giỏ chứa nhiều shop được phép; backend từ chối một request checkout trộn shop.
 - AC-06.2: backend tính giá/cước; thay đổi trước xác nhận phải cho khách xem và xác nhận lại.

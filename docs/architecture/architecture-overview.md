@@ -1,6 +1,6 @@
-# Agora — Kiến trúc hệ thống v0.3
+# Agora — Kiến trúc hệ thống v0.4
 
-Ngày cập nhật: 2026-10-24. M1, Catalog M2a và ảnh Cloudinary M2b1 đã nghiệm thu local. M2b2 công bố/ẩn có backend/UI và proof trước pause (root verify 10:57:21 +07:00 ngày 24/10 đạt 133 tests); sau resume frontend build/lint/typecheck, 86 unit và 144 fixture production (19 regression revalidation mới) đã PASS. Hai asset trước pause exact lookup provider all_missing=true/exit 0; P2 fixed/review accepted, final static review clear; normal live 4/4 (6.7s) và media/publication live 2/2 (8.2s) PASS. M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation và independent exact provider lookup 2 asset all_missing=true/exit 0. Nghiệm thu local không phải production hoặc CI run. Các service sau còn ở mức thiết kế. [ADR-0001](../decisions/0001-foundation.md) ghi nền tảng, [ADR-0002](../decisions/0002-separate-identity-merchant.md) chốt tách Identity/Merchant và [ADR-0003](../decisions/0003-postgresql-only.md) chốt PostgreSQL cho toàn bộ dữ liệu ứng dụng.
+Ngày cập nhật 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local qua M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback, reservation/checkout vẫn là thiết kế. [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md), [ADR-0003](../decisions/0003-postgresql-only.md) giữ nền tảng/sáu service đích/PostgreSQL-only. [Demo storefront](../demo-storefront.md) giữ proof M2c2; [demo giỏ](../demo-cart.md) ghi proof M3a riêng theo ngày.
 
 ## 1. Đích kiến trúc và phần triển khai đầu tiên
 
@@ -9,7 +9,7 @@ Ngày cập nhật: 2026-10-24. M1, Catalog M2a và ảnh Cloudinary M2b1 đã n
 | identity-service | Identity/Access | PostgreSQL local agora; schema identity | Đã triển khai M1 |
 | merchant-service | Merchant | PostgreSQL agora_merchant; schema merchant | Đã triển khai M1 |
 | catalog-service | Catalog/Inventory | PostgreSQL agora_catalog; schema catalog | M2a/M2b1/M2b2/M2c1 đã nghiệm thu local; M2c2 public browse/detail đã triển khai, đã nghiệm thu local ngày 25/10/2026; reservation chưa triển khai |
-| commerce-service | Commerce, Fulfillment, Notification | PostgreSQL agora_commerce | Sau catalog |
+| commerce-service | Commerce; Fulfillment/Notification là đích | PostgreSQL agora_commerce; schema commerce | Đã triển khai giỏ M3a, HTTP 8084; chưa checkout |
 | payment-service | Payment | PostgreSQL agora_payment | Thử sandbox sớm, tích hợp cùng checkout |
 | feedback-service | Feedback | PostgreSQL agora_feedback; schema feedback, dự kiến | Sau đơn giao thành công |
 
@@ -32,7 +32,8 @@ flowchart LR
     Edge --> Commerce[Commerce / Fulfillment]
     Edge --> Payment[Payment]
     Edge --> Feedback[Feedback]
-    Commerce -->|gRPC| Catalog
+    Commerce -->|Session / CSRF hien tai| Identity
+    Commerce -->|CatalogOffers: current offers| Catalog
     Commerce -->|gRPC| Payment
     Commerce -->|HTTPS| GHN[GHN staging]
     Payment -->|HTTPS| VNPay[VNPAY sandbox]
@@ -68,7 +69,7 @@ Web gọi HTTP/JSON cùng origin dưới /api/v1. gRPC dành cho backend, không
 - Cloudinary: Catalog proxy upload ảnh DRAFT/HIDDEN, xác minh metadata và lưu intent/relation riêng; gắn/gỡ tăng version product, cleanup chỉ xóa upload không còn tham chiếu. PUBLISHED cần ẩn trước sửa/đổi ảnh. BasicAuth chỉ dùng phía backend với host HTTPS cố định. Avatar bổ sung ở lát cắt Identity sau.
 - GHN: một điểm lấy hàng/shop, một kiện/đơn, không COD. Địa chỉ và liên kết ShopId staging phải được xác minh khi tích hợp; sandbox không kiểm chứng vận chuyển lạnh thực tế.
 - VNPAY: lưu attempt và tham chiếu độc lập với Order; có tra cứu/refund, xác minh tiền đến muộn và callback lặp.
-- Local dùng PostgreSQL native 16: agora cho Identity, agora_merchant cho Merchant và agora_catalog cho Catalog. Database của service sau chỉ tạo khi triển khai. Không cần MongoDB; RabbitMQ bổ sung khi có luồng sự kiện cần dùng. Integration tests dùng PostgreSQL Docker biệt lập. Đã có workflow CI riêng hai repo; chưa xác nhận GitHub run hoặc deploy.
+- Local dùng PostgreSQL native 16: agora cho Identity, agora_merchant cho Merchant và agora_catalog cho Catalog. Commerce cấu hình agora_commerce/schema commerce và HTTP 8084; fixture M3a dùng database test riêng, chưa xác nhận tạo/migrate Commerce trên native. Database Payment/Feedback chỉ tạo khi triển khai. Không cần MongoDB; RabbitMQ bổ sung khi có luồng sự kiện cần dùng. Integration tests dùng PostgreSQL Docker biệt lập. Đã có workflow CI riêng hai repo; chưa xác nhận GitHub run hoặc deploy.
 - Log có traceId/correlationId, che cookie/password/token provider/chi tiết nhạy cảm. Health check không lộ cấu hình hoặc secret.
 
 ## 6. Phạm vi tiếp theo
@@ -96,3 +97,13 @@ InventoryLot dùng cùng database Catalog, không thêm service hoặc broker. T
 Browse đọc21candidate theo created_at DESC,id DESC, chỉ xét20và gọi Merchant tối đa4batch×5ID. Candidate thứ21 chỉ lookahead; cursor advance theo candidate cuối đã xét. Sau lọc shop có thể có trang rỗng nhưng còn `nextCursor`. Không total count, không tải toàn bộ shop; RPC deadline2giây/call, không retry, lỗi bất kỳ batch nào trả503 toàn request. Detail dùng snapshot REPEATABLE_READ cục bộ, kết thúc transaction trước RPC; shop/product có thể đổi sau kiểm tra, GET sau phải đọc lại.
 
 Product/SKU `inStock` chỉ là boolean từ lô ACTIVE còn hạn theo ngày Việt Nam và on_hand-held-allocated>0; hết tồn vẫn xem được. Không reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ; snapshot public không phải cam kết mua/giao. [Demo storefront](../demo-storefront.md) ghi proof backend25/10; frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront.
+
+## M3a — giỏ hàng trong Commerce
+
+Giỏ đăng nhập nhiều shop, tối đa 20 SKU/1–99 gói mỗi dòng; không giữ stock hoặc tạo Order. Commerce sở hữu cart/version/request, Catalog sở hữu product/SKU/giá/tồn, Merchant xác minh shop ACTIVE. [Ba HTTP operation](../../contracts/openapi/commerce-cart.v1.openapi.json) ở 8084; [CatalogOffers v1](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) ở listener optional 127.0.0.1:9093.
+
+GET đọc cart trong REPEATABLE_READ ngắn, đóng transaction rồi RPC current offers. Catalog đọc một SQL snapshot rồi Merchant tối đa 4 batch × 5shop. Offer thiếu thành null; dependency/malformed response làm GET503 toàn request. Không snapshot phân tán, request sau phải kiểm lại. Giỏ không lưu giá/tên/ảnh cũ.
+
+Mọi HTTP request kiểm Identity hiện tại; mutation kiểm CSRF/cartId theo account trước replay/write. PUT preflight replay trước Catalog, gọi Catalog ngoài transaction rồi recheck replay dưới cart row lock. Lookup lỗi/không khả dụng cũng tra lại replay để bắt original commit đồng thời. Item/version/request result commit cùng transaction; key giữ tối thiểu 7 ngày. DELETE không gọi Catalog, vẫn cần Identity/CSRF/version đúng. Sau mutation cần GET mới; refresh 503 chỉ giữ refs tối thiểu để xóa. [API](api-conventions.md#7-commerce-m3a), [demo/proof](../demo-cart.md).
+
+Reservation FEFO thuộc Catalog ở M3b, checkout một shop thuộc Commerce ở M3c, Payment/VNPAY ở M3d theo plan. M3a không đổi on_hand/held/allocated hoặc gọi GHN/VNPAY.
