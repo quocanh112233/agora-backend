@@ -1,5 +1,9 @@
 # Agora — Trạng thái nghiệp vụ MVP v0.1
 
+## Trạng thái implementation M3b ngày27/10/2026
+
+Reservation hiện thực HELD → RELEASED với CANCELLED hoặc EXPIRED; TTL15phút kiểm bằng Clock server sau khóa, không chỉ dựa worker30giây/batch20. Replay trả trạng thái hiện tại, không gia hạn/hồi sinh. Hold tăng held; release giảm held; không đổi on_hand/allocated. ALLOCATED/SHIPPED trong mô hình đích phía dưới chưa triển khai. Product bị ẩn hoặc lot BLOCKED không ngăn release. [Plan](../../tasks/slice-3-reservations.md), [guide/proof](../demo-reservations.md).
+
 Trạng thái: bản nháp cùng [use case](use-cases.md) và [bản đồ context](capability-map.md). Tên dưới đây là enum nội bộ đề xuất, không phải mã chính thức của VNPAY/GHN.
 
 ## 1. Nguyên tắc

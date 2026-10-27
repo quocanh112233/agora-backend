@@ -1,5 +1,11 @@
 # Agora — Kiến trúc hệ thống v0.4
 
+## Catalog M3b — reservation
+
+Catalog sở hữu reservation và bộ đếm held trên PostgreSQL, dùng listener9093 hiện có cùng token nội bộ. `Hold` giữ toàn bộ SKU của một shop bằng transaction; `Get`/`Release` trả trạng thái hiện tại và giải phóng HELD quá hạn. Không cần service hoặc datastore mới. Merchant ACTIVE được kiểm ngoài transaction cho hold mới; replay/release không phụ thuộc Merchant. Không có snapshot xuyên service.
+
+checkout_id là identity vĩnh viễn, không áp retention7ngày của giỏ. Khóa product rồi lot theo UUID; chọn FEFO trong memory. Cleanup batch hữu hạn, cùng Get/Release bảo vệ TTL15phút. Cart M3a vẫn không giữ tồn, M3c mới gọi reservation trong checkout. ALLOCATED/SHIPPED, GHN/VNPAY chưa có. [Chi tiết](../../tasks/slice-3-reservations.md), [bằng chứng theo ngày](../demo-reservations.md).
+
 Ngày cập nhật 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local qua M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback, reservation/checkout vẫn là thiết kế. [ADR-0001](../decisions/0001-foundation.md), [ADR-0002](../decisions/0002-separate-identity-merchant.md), [ADR-0003](../decisions/0003-postgresql-only.md) giữ nền tảng/sáu service đích/PostgreSQL-only. [Demo storefront](../demo-storefront.md) giữ proof M2c2; [demo giỏ](../demo-cart.md) ghi proof M3a riêng theo ngày.
 
 ## 1. Đích kiến trúc và phần triển khai đầu tiên

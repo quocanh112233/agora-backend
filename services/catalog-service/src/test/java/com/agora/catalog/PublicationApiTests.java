@@ -38,7 +38,7 @@ class PublicationApiTests {
     static final String BASE = "/api/v1/seller/products";
     static String key() { return UUID.randomUUID().toString(); }
     @BeforeEach void reset() {
-        jdbc.execute("TRUNCATE catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
+        jdbc.execute("TRUNCATE catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
     }
     HttpResponse<String> request(String method, String path, String body, String session, String key, String csrf) throws Exception {
         var builder = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).header("Content-Type", "application/json");

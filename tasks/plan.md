@@ -1,5 +1,9 @@
 # Agora — Kế hoạch triển khai
 
+## M3b ngày27/10/2026 — reservation Catalog
+
+Canonical tracker `slice-3-reservations`; [thiết kế](slice-3-reservations.md), [proto](../contracts/proto/agora/catalog/v1/catalog_reservations.proto), [guide/proof](../docs/demo-reservations.md). M3b đã nghiệm thu local27/10: root274tests đạt lúc10:14:28+07:00 (13Identity/59Merchant/178Catalog/24Commerce), review actual core/RPC CLEAR. Ba finding core và một lỗi phân loại RPC đều đã sửa với RED/GREEN; chi tiết trong guide. Chỉ hoàn thiện M3b, chưa mở M3c checkout/GHN hoặc M3dVNPAY. Mọi trạng thái chưa reservation trong mốc M2/M3a dưới đây là lịch sử.
+
 ## Cập nhật M3a ngày 26/10 — giỏ hàng đã có implementation
 
 Canonical tracker hiện tại slice-3-cart; [plan M3a](slice-3-cart.md), [OpenAPI giỏ](../contracts/openapi/commerce-cart.v1.openapi.json), [CatalogOffers proto](../contracts/proto/agora/catalog/v1/catalog_offers.proto), [demo giỏ](../docs/demo-cart.md). Commerce là service thứ tư: HTTP 8084, PostgreSQL agora_commerce/schema commerce/V1; Catalog thêm optionalgRPC9093 và library catalog-contract. Giỏ đăng nhập nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng; GET current offers, PUT tuyệt đối, DELETE độc lập Catalog. cartId ràng buộc account, auth/CSRF trước replay, version/key7 ngày và preflight+row-lock replay; refresh lỗi chỉ giữ refs tối thiểu để xóa. Không giữ tồn/reservation/checkout.

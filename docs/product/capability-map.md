@@ -1,5 +1,9 @@
 # Agora — Bản đồ nghiệp vụ MVP v0.1
 
+## Tiến độ M3b ngày27/10/2026
+
+Catalog giữ tồn FEFO qua RPC nội bộ Hold/Get/Release, TTL15phút và cleanup/replay bền vững; chưa có ALLOCATED/SHIPPED. Giỏ vẫn chỉ giữ ý định mua; checkout một shop/GHN và VNPAY lần lượt M3c/M3d. Các mô tả reservation chưa triển khai ở mốc M2/M3a dưới đây là lịch sử theo ngày. [Plan M3b](../../tasks/slice-3-reservations.md), [trạng thái nghiệm thu](../demo-reservations.md).
+
 Trạng thái: bản nháp để review. Bộ tài liệu gồm ranh giới nghiệp vụ, use case và trạng thái; chưa phải kế hoạch triển khai hoặc hợp đồng API hoàn chỉnh.
 
 Cập nhật implementation25/10/2026: M1, Catalog sản phẩm/SKU/ảnh/visibility và M2c1 quản lý lô đã nghiệm thu local. M2c2 đã triển khai public browse/detail qua đúng hai GET, đã nghiệm thu local ngày 25/10/2026; backend proof theo ngày ở [demo storefront](../demo-storefront.md), frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront. Các khả năng checkout/giữ hàng/GHN/VNPAY/review/Q&A trong bản đồ bên dưới vẫn là đích.

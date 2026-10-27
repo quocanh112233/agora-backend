@@ -1,6 +1,7 @@
 package com.agora.catalog.configuration;
 
 import com.agora.catalog.application.CatalogOffersService;
+import com.agora.catalog.adapter.inbound.ReservationRpc;
 import com.agora.contracts.catalog.v1.*;
 import io.grpc.*;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
@@ -21,13 +22,14 @@ import org.springframework.stereotype.Component;
 public class CatalogGrpcServer implements SmartLifecycle {
     private static final Metadata.Key<String> INTERNAL_TOKEN=Metadata.Key.of("x-agora-internal-token",Metadata.ASCII_STRING_MARSHALLER);
     private final CatalogOffersService offers;
+    private final ReservationRpc reservations;
     private final int configuredPort;
     private final byte[] token;
     private volatile Server server;
-    public CatalogGrpcServer(CatalogOffersService offers,@Value("${agora.grpc.port}") int port,@Value("${agora.grpc.token}") String token){
+    public CatalogGrpcServer(CatalogOffersService offers,ReservationRpc reservations,@Value("${agora.grpc.port}") int port,@Value("${agora.grpc.token}") String token){
         if(port<0||port>65535)throw new IllegalArgumentException("Invalid Catalog gRPC port.");
         if(token==null||!token.matches("[A-Za-z0-9_-]{32,256}"))throw new IllegalArgumentException("Invalid interservice token.");
-        this.offers=offers;this.configuredPort=port;this.token=token.getBytes(StandardCharsets.UTF_8);
+        this.offers=offers;this.reservations=reservations;this.configuredPort=port;this.token=token.getBytes(StandardCharsets.UTF_8);
     }
     @Override public synchronized void start(){
         if(isRunning())return;
@@ -42,7 +44,7 @@ public class CatalogGrpcServer implements SmartLifecycle {
                             }
                             return next.startCall(call,headers);
                         }
-                    }).addService(new Endpoint()).build().start();
+                    }).addService(new Endpoint()).addService(reservations).build().start();
         }catch(IOException e){throw new IllegalStateException("Cannot start Catalog gRPC listener",e);}
     }
     public int port(){return server.getPort();}

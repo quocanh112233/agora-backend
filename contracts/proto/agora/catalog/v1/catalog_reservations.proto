@@ -1,0 +1,57 @@
+syntax = "proto3";
+package agora.catalog.v1;
+option java_package = "com.agora.contracts.catalog.v1";
+option java_multiple_files = true;
+
+// Trusted Commerce callers authenticate the buyer before invoking these RPCs.
+// Responses require a 128 KiB receive limit; requests fit the listener's 4 KiB limit.
+service CatalogReservations {
+  rpc Hold(HoldReservationRequest) returns (ReservationResponse);
+  rpc Get(ReservationReference) returns (ReservationResponse);
+  rpc Release(ReservationReference) returns (ReservationResponse);
+}
+message ReservationLine {
+  string product_id = 1;
+  string sku_id = 2;
+  int32 quantity = 3;
+}
+message HoldReservationRequest {
+  string buyer_id = 1;
+  string checkout_id = 2;
+  string shop_id = 3;
+  repeated ReservationLine lines = 4;
+}
+message ReservationReference {
+  string buyer_id = 1;
+  string checkout_id = 2;
+}
+message ReservedLot {
+  string lot_id = 1;
+  int32 quantity = 2;
+}
+message ReservedItem {
+  string product_id = 1;
+  string sku_id = 2;
+  int32 quantity = 3;
+  repeated ReservedLot lots = 4;
+}
+enum ReservationState {
+  RESERVATION_STATE_UNSPECIFIED = 0;
+  HELD = 1;
+  RELEASED = 2;
+}
+enum ReservationReleaseReason {
+  RESERVATION_RELEASE_REASON_UNSPECIFIED = 0;
+  CANCELLED = 1;
+  EXPIRED = 2;
+}
+message ReservationResponse {
+  string checkout_id = 1;
+  string buyer_id = 2;
+  string shop_id = 3;
+  ReservationState state = 4;
+  int64 created_at_epoch_micros = 5;
+  int64 expires_at_epoch_micros = 6;
+  ReservationReleaseReason release_reason = 7;
+  repeated ReservedItem items = 8;
+}

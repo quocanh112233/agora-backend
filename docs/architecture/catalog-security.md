@@ -1,5 +1,11 @@
 # Catalog — Ranh giới bảo mật và dữ liệu
 
+## M3b — reservation nội bộ
+
+CatalogReservations chia sẻ loopback9093/token constant-time với Offers. Token là service authentication; buyer_id không tự chứng minh người dùng, Commerce phải xác thực trước gọi khi có checkout. M3b chưa expose public HTTP. Mỗi Get/Release/replay kiểm buyer/checkout, mismatch NOT_FOUND; payload mismatch cùng owner ALREADY_EXISTS. Replay không bỏ qua token hoặc owner và không cần shop còn ACTIVE để trả tồn.
+
+Lot references chỉ trả trên RPC nội bộ, không thêm vào PublicProduct/CartOffer. Không nhận counters/deadline/state do caller cấp. Hold local eligibility kiểm dưới parent lock; stock allocation và permanent identity commit cùng audit/counters. Error mapping không lộ SQL/host/token. Timeout/worker contention phải retry an toàn, không bỏ qua kiểm tồn. [Thiết kế](../../tasks/slice-3-reservations.md), [guide/proof](../demo-reservations.md).
+
 M2a quản lý sản phẩm/SKU theo [kế hoạch](../../tasks/slice-2-catalog.md) và [OpenAPI](../../contracts/openapi/catalog.v1.openapi.json). M2b1 bổ sung ảnh qua [contract riêng](../../contracts/openapi/catalog-media.v1.openapi.json), M2b2 bổ sung công bố/ẩn qua visibility endpoint; không thêm URL/public ID vào Product input. M2c2 đã triển khai hai GET browse/detail public, đã nghiệm thu local ngày 25/10/2026; chưa có endpoint mua hàng. Kết quả backend và UI/live ghi riêng để phân biệt giới hạn bằng chứng.
 
 ## Danh tính và quyền shop

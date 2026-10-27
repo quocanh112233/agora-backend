@@ -1,5 +1,18 @@
 # Agora — Mô hình dữ liệu
 
+## Catalog M3b — V6 reservation
+
+[V6](../../services/catalog-service/src/main/resources/db/migration/V6__reservations.sql) thêm bốn bảng; V1–V5 giữ nguyên.
+
+| Bảng | Ràng buộc và vai trò |
+| --- | --- |
+| catalog.reservations | checkout_id PK vĩnh viễn; buyer/shop/hash; HELD/RELEASED; created/expires/released timestamps; TTL đúng15phút; CANCELLED/EXPIRED |
+| catalog.reservation_lines | PKcheckout/SKU; product/SKU refs cục bộ, quantity1–99 |
+| catalog.reservation_allocations | PKcheckout/SKU/lot; quantity1–99, FK tới reservation line và composite lot/SKU |
+| catalog.reservation_audit | HOLD/RELEASE/EXPIRE theo từng lot; quantity/version, FK allocation, unique checkout/lot/action |
+
+Hold tăng held và version, không đổi on_hand/allocated. Release/expiry giảm đúng held một lần, cùng transaction đổi trạng thái/audit; vẫn trả được tồn của lô BLOCKED/productHIDDEN. Identity không bị dọn sau7ngày; không hồi sinh RELEASED. Thời gian chuẩn hóa microsecond, RPC truyền epoch microseconds. Không FK xuyên service, không sao chép đơn/địa chỉ/thanh toán vào Catalog. [Thiết kế và giới hạn](../../tasks/slice-3-reservations.md), [proof](../demo-reservations.md).
+
 Trạng thái ngày 24/10/2026: Catalog đã có V1 product/SKU, V2 ảnh và V3 visibility trên fixture PostgreSQL; M2b2 đã có 144 fixture frontend PASS sau sửa revalidation, P2 fixed/review accepted, 4 normal live và 2 media/publication live mới PASS; M2b2 đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00 sau main xác minh hai asset mới DB DELETED/0 relation, final DRAFT/version 2 và HIDDEN/version 7, independent exact provider lookup 2 asset all_missing=true/exit 0; cleanup hai asset trước pause đã được main xác minh. Identity có migration V1–V3 cho schema/account/role/session. Merchant có V1 shop/audit/idempotency và V2 shop_reviews; create/edit/submit/review/resubmit đã triển khai và kiểm thử trên PostgreSQL riêng. Identity và Merchant tách service/database theo [ADR-0002](../decisions/0002-separate-identity-merchant.md).
 
 Cập nhật 26/10/2026: Commerce là service thứ tư đã triển khai, có V1 cart tại agora_commerce/schema commerce. Root 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. [Demo giỏ](../demo-cart.md) ghi proof và giới hạn.

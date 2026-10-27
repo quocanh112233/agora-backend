@@ -1,5 +1,9 @@
 # Agora Backend
 
+## Catalog M3b — giữ tồn nội bộ
+
+Catalog đã nghiệm thu local ngày27/10/2026 phần giữ tồn FEFO/TTL15phút qua ba RPC Hold/Get/Release. Một checkout/một shop, 1–20 SKU/1–99gói, atomic toàn bộ, identity checkout vĩnh viễn; replay không gia hạn hoặc hồi sinh. Chưa có HTTP checkout, khóa giá, phân bổ trả tiền hoặc thay đổi giao diện giỏ. [Thiết kế](tasks/slice-3-reservations.md), [hướng dẫn và bằng chứng](docs/demo-reservations.md). Các số test M3a/M2 dưới đây giữ theo ngày; kết quả M3b cuối ghi riêng trong hướng dẫn.
+
 Backend marketplace B2B2C nông sản và thủy hải sản cho portfolio cá nhân. Định hướng microservice/DDD, Java Spring Boot, PostgreSQL cho toàn bộ dữ liệu ứng dụng, gRPC và các tích hợp sandbox. Cloudinary lưu ảnh; Feedback cũng dùng PostgreSQL theo [ADR-0003](docs/decisions/0003-postgresql-only.md).
 
 ## Hiện trạng

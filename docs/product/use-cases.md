@@ -1,5 +1,9 @@
 # Agora — Use case MVP v0.1
 
+## M3b — nền tảng giữ tồn cho UC-06
+
+Catalog đã có core và RPC Hold/Get/Release cho checkout một shop, FEFO/TTL15phút, giữ đủ toàn bộ hoặc rollback, permanent checkout identity và chống release lặp. Đây là nền tảng nội bộ; UC-06 checkout chưa hoàn tất vì chưa có địa chỉ/GHN quote/giá xác nhận/order snapshot. Không có nút checkout trên giỏ trong M3b. [Plan](../../tasks/slice-3-reservations.md), [guide và trạng thái nghiệm thu](../demo-reservations.md).
+
 Trạng thái: bản nháp để review cùng [bản đồ context](capability-map.md). Các mã UC/AC phục vụ truy vết tới API và kiểm thử sau; chưa là kế hoạch hay danh sách task triển khai.
 
 ## UC-01 — Tài khoản và hồ sơ

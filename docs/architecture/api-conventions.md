@@ -1,5 +1,13 @@
 # Agora — Hợp đồng HTTP và gRPC
 
+## CatalogReservations M3b
+
+[Proto](../../contracts/proto/agora/catalog/v1/catalog_reservations.proto) bổ sung Hold/Get/Release trên listener9093. Caller server tin cậy xác thực buyer trước RPC; token nội bộ kiểm trước mọi validation/persistence, buyer/checkout binding luôn kiểm trước replay. Hold nhận buyer/checkout/shop UUID, 1–20 dòng product/SKU UUID khác nhau, quantity1–99. Get/Release nhận buyer+checkout. Không endpoint HTTP public mới.
+
+Response HELD/RELEASED, deadline cố định15phút, release reason CANCELLED/EXPIRED, dòng và lot references chỉ nội bộ. Timestamp epoch microseconds. Idempotency theo checkout vĩnh viễn; cùng payload trả trạng thái hiện tại, không snapshot HELD cũ hoặc gia hạn. Cùng checkout khác payload ALREADY_EXISTS; không thuộc buyer NOT_FOUND.
+
+Status safe: INVALID_ARGUMENT input, FAILED_PRECONDITION eligibility/thiếu tồn, RESOURCE_EXHAUSTED vượt giới hạn lô, UNAVAILABLE dependency/contention/timeout, INTERNAL lỗi lập trình. Không trả SQL/secret/message exception. Request4KiB/maxcalls32 kế thừa listener; reservation caller dùng inbound128KiB/không retry transport. Offers client64KiB vẫn chỉ gọi Offers, chưa có caller reservation trong Commerce. Request chưa rõ kết quả phải đối soát/retry cùng checkout_id. [Guide/proof](../demo-reservations.md).
+
 Nguồn machine-readable: [OpenAPI 3.1 JSON](../../contracts/openapi/identity-merchant.v1.openapi.json). Bundle của hai service tách riêng; x-service xác định provider. Ngày 23/10/2026, cả 11 thao tác dưới đây đã triển khai, gồm account/session/CSRF và shop draft/submit/admin review/resubmit. OpenAPI vẫn giữ nguyên revision dùng chung với frontend; mô tả lịch sử trong snapshot không phải báo cáo tiến độ.
 
 Catalog có artifact riêng [catalog.v1.openapi.json](../../contracts/openapi/catalog.v1.openapi.json) cho năm thao tác seller product list/create/read/update/visibility; media và inventory có contract riêng. M2c2 public browse/detail đã triển khai theo [catalog-storefront.v1.openapi.json](../../contracts/openapi/catalog-storefront.v1.openapi.json)1.0.0, đã nghiệm thu local ngày 25/10/2026. Không sửa artifact onboarding để thêm Catalog; [ranh giới Catalog](catalog-security.md) phân biệt quyền seller/public.

@@ -1,5 +1,11 @@
 # Agora — Cấu trúc thư mục
 
+## Catalog M3b — thành phần reservation
+
+`domain/Reservation.java` chứa immutable Request/Line/Item/Allocation và canonical hash; `application/ReservationService.java` điều phối Merchant/replay và expiry scheduler; port `ReservationStore.java` và adapter `JdbcReservationStore.java` giữ transaction/khóa/counters. `adapter/inbound/ReservationRpc.java` map protobuf qua service, đăng ký cùng Offers trong CatalogGrpcServer. [Proto](../../contracts/proto/agora/catalog/v1/catalog_reservations.proto) được build bởi catalog-contract hiện có, không thêm module/dependency. [V6](../../services/catalog-service/src/main/resources/db/migration/V6__reservations.sql) thêm reservation schema.
+
+Tests: ReservationDomainTests, ReservationServiceTests, ReservationStoreTests, ReservationGrpcTests và ReservationRpcIntegrationTests. PostgreSQL test biệt lập; integration dùng listener TCP thật, Merchant fixture gRPC, Clock kiểm soát. Frontend/Commerce HTTP không thay đổi. [Guide và evidence](../demo-reservations.md).
+
 Trạng thái 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local đến M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback, fulfillment/notification chưa triển khai. backend/frontend là hai repo riêng; không tạo repo thứ ba hoặc phụ thuộc filesystem repo kia khi build. Mọi service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
 
 ## 1. Repo backend
