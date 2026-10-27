@@ -45,7 +45,7 @@ Account là aggregate của Identity; Shop là aggregate của Merchant. owner_a
 
 Giá trị cột email được chuẩn hóa bằng strip và lowercase theo chính sách ứng dụng; không có cột normalized_email hoặc quy tắc riêng của Gmail. Password không trim, giới hạn 12–128 ký tự, hash Argon2id. Tính hợp lệ email/password phải khớp schema OpenAPI và validator backend.
 
-pickup_address là object có countryCode=VN, provinceCode/provinceName, wardCode/wardName, streetAddress. Code là chuỗi opaque, không giả định số. Lát cắt 1 kiểm tra hình dạng; việc đối chiếu mã địa giới/địa chỉ GHN được thực hiện trước tạo vận đơn khi tích hợp. Không tuyên bố đã được GHN xác minh chỉ vì nhập form thành công.
+pickup_address là object legacy có countryCode=VN, provinceCode/provinceName, wardCode/wardName, streetAddress; code là chuỗi opaque. Hồ sơ/contact và validation hiện có giữ nguyên theo [ADR-0004](../decisions/0004-order-and-payment-only.md), không xóa hoặc rewrite migration. Checkout mới không sao chép/yêu cầu địa chỉ này và không dùng cho nhận tại shop hay tích hợp vận chuyển.
 
 Tạo Shop là DRAFT. Chỉ owner sửa DRAFT/REJECTED trong lát cắt 1; sửa REJECTED đưa về DRAFT. Submit DRAFT thành PENDING_REVIEW; admin APPROVE thành ACTIVE hoặc REJECT thành REJECTED, lưu lý do. Mỗi thay đổi tăng version; đọc version cũ trả 409.
 
@@ -102,7 +102,7 @@ FK SKU bổ sung UNIQUE(id,product_id,shop_id); unique(product_id,position) DEFE
 
 [V5__public_product_browse.sql](../../services/catalog-service/src/main/resources/db/migration/V5__public_product_browse.sql) chỉ thêm partial index `products_public_newest` trên products(created_at DESC,id DESC) WHERE status='PUBLISHED'; V1–V4 giữ nguyên, không thêm bảng hoặc bản sao Merchant/Identity. Browse/detail dùng projection riêng từ product/SKU, relation ảnh UPLOADED và inventory_lots; detail dùng REPEATABLE_READ ngắn rồi đóng transaction trước Merchant RPC kiểm shop ACTIVE hiện tại.
 
-Browse đọc21candidate, chỉ xét20và xác minh Merchant tối đa4batch×5ID. Cursor theo candidate cuối đã xét; trang rỗng vẫn có thể còn nextCursor, không total count. Public chỉ trả shop `{id,name}` tối đa120codepoints, omit legacy blank. Product/SKU `inStock` là EXISTS lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh, on_hand-held-allocated>0; không trả exact count, mã/ngày lô, version/audit hoặc upload intent. [Allowlist và trường private](catalog-security.md#storefront-m2c2--public-projection), [demo/proof backend](../demo-storefront.md). Không reservation/FEFO allocation hoặc đảm bảo mua/giao; frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront.
+Browse đọc21candidate, chỉ xét20và xác minh Merchant tối đa4batch×5ID. Cursor theo candidate cuối đã xét; trang rỗng vẫn có thể còn nextCursor, không total count. Public chỉ trả shop `{id,name}` tối đa120codepoints, omit legacy blank. Product/SKU `inStock` là EXISTS lô ACTIVE, expires_on>hôm nay Asia/Ho_Chi_Minh, on_hand-held-allocated>0; không trả exact count, mã/ngày lô, version/audit hoặc upload intent. [Allowlist và trường private](catalog-security.md#storefront-m2c2--public-projection), [demo/proof backend](../demo-storefront.md). Tại nghiệm thu M2c2 ngày25/10 chưa có reservation, không đảm bảo mua; M3b reservation đã nghiệm thu27/10. Frontend/live/review M2c2 đã hoàn tất, bằng chứng cuối ghi trong demo storefront.
 
 ### Commerce M3a
 
@@ -122,14 +122,22 @@ Mutation insert cart ON CONFLICT rồi SELECT FOR UPDATE; recheck replay theo ac
 
 PUT preflight replay trước Catalog; lookup lỗi/không khả dụng cũng tra lại replay để bắt original commit đồng thời. DELETE không cần Catalog. Key giữ tối thiểu 7 ngày; cleanup mỗi giờ xóa record cũ hơn 7 ngày, không bảo đảm replay sau dọn. Replay trả version gốc, cần GET mới. [API](api-conventions.md#7-commerce-m3a), [demo](../demo-cart.md). Giỏ không tạo Reservation/Order hoặc đổi stock counters.
 
-## 3. Dữ liệu chưa triển khai
+## 3. Checkout M3c hiện có và dữ liệu đích M3d — 27/10/2026
+
+[Plan M3c](../../tasks/slice-3-checkout.md) đã có source và migration V7 Catalog/V2 Commerce, đã nghiệm thu local ngày27/10/2026. [Demo/evidence](../demo-checkout.md) ghi focused/module/root303PASS và live/cleanup đã được main xác minh; proof M3b V6 không chứng minh current M3c. Sáu service giữ nguyên, không Fulfillment/Shipment. Tổng đơn chỉ gồm tiền hàng; không thêm địa chỉ giao nhận, phí, kiện hoặc pickup vào hợp đồng mới. Metadata SKU net/shipping weight/dimensions đã lưu vẫn giữ như legacy, không phá form/API sản phẩm đã nghiệm thu.
+
+M3c hiện lưu preview giá/version (5 phút), attempt PROCESSING/ORDER_CREATED/FAILED có checkout identity bền vững và lease fencing, Order cùng dòng snapshot bất biến trong JSONB. Order tạo từ validated HELD do Catalog trả, không bác HELD bằng đồng hồ Commerce; response AWAITING_PAYMENT/EXPIRED được tính từ expires_at và DB clock khi đọc, không có cột state riêng trong orders. Preview/attempt thuộc buyer; một preview chỉ dùng một lần, replay không tạo thêm đơn hoặc dọn giỏ lần hai. RPC luôn ngoài transaction cục bộ; cart chỉ dọn các dòng đã chọn khi version còn bằng preview.
+
+M3d mới thêm Order PAID/CANCELLED và reservation CONSUMED. HELD → CONSUMED giảm held và on_hand cùng transaction Catalog, audit/dedup cùng commit; không dùng SHIPPED giả hoặc thêm ALLOCATED. Cột allocated và phép tính available hiện có vẫn giữ để tương thích schema/lịch sử (allocated bằng 0 trong dữ liệu test M3b). PAID terminal chỉ sau xác minh tiền và tiêu thụ tồn; tiền trễ/trùng có nghĩa vụ refund riêng, không hồi sinh reservation hoặc tự tăng tồn.
 
 | Service | Aggregate/data chính | Bất biến cần giữ |
 |---|---|---|
-| Catalog | Product, SKU, InventoryLot, Reservation | Product thuộc shop; giữ toàn giỏ hoặc không; available = on_hand - held - allocated không âm; lô đủ hạn |
-| Commerce | Order, Cancellation, QualityClaim; Shipment trong Fulfillment | Một shop/đơn; snapshot; claim chặn hoàn tất; raw GHN và trạng thái nội bộ riêng |
-| Payment | PaymentAttempt, ProviderTransaction, Refund, LedgerEntry, Settlement | Unique provider transaction; tiền đã thu không mất vì hủy; tổng refund thành công + pending không vượt captured |
-| Feedback (PostgreSQL) | Review, Question, Answer, SellerReply, moderation/audit | Unique order_line_id cho review; rating 1–5; quyền xác minh qua Commerce; FK cục bộ; phân trang nội dung riêng |
+| Catalog | Quote/accepted-price-version hold M3c hiện có, đã nghiệm thu local ngày27/10/2026; CONSUMED là đích M3d | FEFO đủ toàn bộ, không âm tồn; release không đổi on_hand; consume giảm held/on_hand một lần |
+| Commerce | CheckoutPreview, CheckoutAttempt, Order và dòng snapshot | Một shop/đơn; tên/SKU/quy cách/giá/quantity/tổng server; AWAITING_PAYMENT → PAID hoặc EXPIRED/CANCELLED; không trạng thái giao nhận |
+| Payment | PaymentAttempt, ProviderTransaction, Refund, LedgerEntry, Settlement mô phỏng | Unique provider transaction; tiền đã thu không mất vì hủy; tổng refund thành công + pending không vượt captured |
+| Feedback (PostgreSQL) | Review, Question, Answer, SellerReply, moderation/audit | Unique order_line_id cho review; rating 1–5; Commerce xác minh buyer sở hữu dòng đơn PAID; FK cục bộ |
+
+QualityClaim sau giao và return shipment ngoài phạm vi; refund tài chính cho tiền trễ/trùng vẫn thuộc Payment. Không tạo dữ liệu logistics để đóng nghĩa vụ tiền.
 
 Ảnh là tham chiếu Cloudinary public_id, loại, chủ sở hữu và trạng thái gắn đối tượng; file thực nằm ở Cloudinary. Một review gắn dòng đơn và tác giả; productId/shopId/orderLineId là tham chiếu, không FK hoặc transaction xuyên service dù cùng dùng PostgreSQL.
 
@@ -151,4 +159,18 @@ MVP ưu tiên tính count/sum/average từ review đang hiển thị để trán
 
 Outbox/inbox thêm ở database context có sự kiện liên service khi cần. Sổ tiền append-only và có bút toán điều chỉnh; không sửa số dư bằng thao tác tay thay cho lịch sử giao dịch.
 
-Catalog có schema product/SKU, ảnh, visibility và lô qua V4, V5 thêm index public browse; schema reservation, Order/Payment/Feedback sẽ được viết cùng lát cắt tương ứng. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.
+Catalog có schema product/SKU, ảnh, visibility và lô qua V4, V5 thêm index public browse; V6 đã có reservation HELD/RELEASED; V7 và Commerce V2 checkout/Order hiện có và đã nghiệm thu local ngày27/10/2026; CONSUMED/Payment/Feedback chưa triển khai. [Use case](../product/use-cases.md) và [state machines](../product/state-machines.md) vẫn là nguồn quy tắc nghiệp vụ.
+
+### Migration M3c hiện có — chưa là proof áp dụng runtime
+
+[Catalog V7](../../services/catalog-service/src/main/resources/db/migration/V7__checkout_decisions.sql) và [Commerce V2](../../services/commerce-service/src/main/resources/db/migration/V2__commerce_checkout.sql) là migration mới; giữ nguyên V1–V6 Catalog và V1 Commerce.
+
+| Bảng/thay đổi | Nội dung hiện có |
+| --- | --- |
+| catalog.checkout_decisions | checkout_id PK vĩnh viễn; buyer/shop/hash; closure_reason OFFER_UNAVAILABLE/CHECKOUT_EXPIRED; closed_at DB time; không hồi sinh identity đã đóng |
+| catalog.reservations.accepted_not_after | Nullable; phân biệt accepted checkout dùng DB time với raw M3b giữ time semantics/hash cũ |
+| commerce.checkout_previews | UUID id; actor/key unique, hash, snapshotJSONB chứa Preview + productVersions nội bộ, expires_at giữ nguyên từ quote |
+| commerce.checkout_attempts | PK actor/key; unique preview_id/checkout_id/order_id; PROCESSING/ORDER_CREATED/FAILED; failure_code có check; revision/lease_until; actor+preview FK cục bộ, recovery index |
+| commerce.orders | UUID id; actor/unique checkout FK; snapshotJSONB gồm các dòng và tổng; created_at/expires_at/cart_cleared; index actor/created_at DESC/id DESC; attempt.order_id FK ngược cục bộ |
+
+Không có order_lines riêng hoặc cột order state trong V2 hiện tại. Attempt/checkout identity bền vững không dùng cleanup7ngày của cart_requests; Merchant/contact/pickup_address, metadata SKU và allocated giữ nguyên. Không FK/transaction xuyên database. [API](api-conventions.md#8-checkout-m3c--implementation-đã-nghiệm-thu-local-ngày27102026), [demo](../demo-checkout.md).

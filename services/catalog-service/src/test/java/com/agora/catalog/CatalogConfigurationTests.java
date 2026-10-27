@@ -33,6 +33,7 @@ class CatalogConfigurationTests {
         var context=new org.springframework.boot.test.context.runner.ApplicationContextRunner()
                 .withUserConfiguration(com.agora.catalog.configuration.CatalogGrpcServer.class)
                 .withBean(com.agora.catalog.application.CatalogOffersService.class,()->org.mockito.Mockito.mock(com.agora.catalog.application.CatalogOffersService.class))
+                .withBean(com.agora.catalog.adapter.inbound.CheckoutRpc.class,()->org.mockito.Mockito.mock(com.agora.catalog.adapter.inbound.CheckoutRpc.class))
                 .withBean(com.agora.catalog.adapter.inbound.ReservationRpc.class,()->org.mockito.Mockito.mock(com.agora.catalog.adapter.inbound.ReservationRpc.class));
         context.run(c->assertThat(c).doesNotHaveBean(com.agora.catalog.configuration.CatalogGrpcServer.class));
         context.withPropertyValues("agora.grpc.enabled=true","agora.grpc.port=0","agora.grpc.token=bad")

@@ -33,7 +33,7 @@ class StorefrontApiTests {
     final HttpClient http=HttpClient.newHttpClient();
     record Seed(UUID id,UUID shop,UUID sku,UUID image,UUID lot){}
     @BeforeEach void reset(){
-        jdbc.execute("TRUNCATE catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
+        jdbc.execute("TRUNCATE catalog.checkout_decisions,catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
         rpc.merchantFailure.set(null);rpc.publicResponse.set(null);rpc.hangMerchant=false;rpc.publicCalls.set(0);rpc.publicBatchSizes.clear();rpc.publicFailAt.set(0);
         when(clock.getZone()).thenReturn(ZoneId.of("Asia/Ho_Chi_Minh"));when(clock.instant()).thenReturn(Instant.parse("2026-10-24T03:00:00Z"));
     }

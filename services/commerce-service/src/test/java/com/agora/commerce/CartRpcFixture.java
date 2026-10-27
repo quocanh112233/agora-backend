@@ -16,7 +16,18 @@ final class CartRpcFixture implements AutoCloseable {
     final AtomicReference<Status> identityFailure=new AtomicReference<>(),catalogFailure=new AtomicReference<>();
     final AtomicReference<ResolveOffersResponse> override=new AtomicReference<>();
     final AtomicInteger catalogCalls=new AtomicInteger();
-    volatile Runnable catalogHook=()->{};
+    volatile Runnable catalogHook=()->{},quoteHook=()->{},holdHook=()->{};
+    final AtomicInteger quoteCalls=new AtomicInteger(),holdCalls=new AtomicInteger();
+    final AtomicReference<Status> quoteFailure=new AtomicReference<>(),holdFailure=new AtomicReference<>(),afterHoldFailure=new AtomicReference<>();
+    final AtomicReference<QuoteCheckoutResponse> quoteOverride=new AtomicReference<>();
+    final AtomicReference<CheckoutHoldResult> holdOverride=new AtomicReference<>();
+    final Map<String,HoldCheckoutRequest> accepted=new ConcurrentHashMap<>();
+    final Map<String,CheckoutHoldResult> decisions=new ConcurrentHashMap<>();
+    final List<HoldCheckoutRequest> holdRequests=new CopyOnWriteArrayList<>();
+    volatile long quoteExpiry;
+    static long micros(){var n=java.time.Instant.now();return n.getEpochSecond()*1000000+n.getNano()/1000;}
+    void resetCheckout(){quoteCalls.set(0);holdCalls.set(0);quoteFailure.set(null);holdFailure.set(null);afterHoldFailure.set(null);quoteOverride.set(null);holdOverride.set(null);accepted.clear();decisions.clear();holdRequests.clear();quoteHook=()->{};holdHook=()->{};quoteExpiry=0;}
+
     final ManagedChannel identityChannel,catalogChannel;final Server identityServer,catalogServer;
     CartRpcFixture()throws Exception{
         String identity=InProcessServerBuilder.generateName(),catalog=InProcessServerBuilder.generateName();
@@ -36,9 +47,37 @@ final class CartRpcFixture implements AutoCloseable {
                 var reply=ResolveOffersResponse.newBuilder();for(String id:r.getSkuIdsList()){var offer=offers.get(UUID.fromString(id));if(offer!=null)reply.addOffers(offer);}
                 out.onNext(reply.build());out.onCompleted();
             }
+        }).addService(new CatalogCheckoutGrpc.CatalogCheckoutImplBase(){
+            @Override public void quoteCheckout(QuoteCheckoutRequest r,StreamObserver<QuoteCheckoutResponse> out){
+                quoteCalls.incrementAndGet();quoteHook.run();
+                if(quoteFailure.get()!=null){out.onError(quoteFailure.get().asRuntimeException());return;}
+                if(quoteOverride.get()!=null){out.onNext(quoteOverride.get());out.onCompleted();return;}
+                var reply=QuoteCheckoutResponse.newBuilder().setShopId(r.getShopId()).setExpiresAtEpochMicros(quoteExpiry==0?micros()+300000000:quoteExpiry);
+                for(var line:r.getLinesList()){
+                    var offer=offers.get(UUID.fromString(line.getSkuId()));
+                    if(offer==null||!offer.getInStock()||!offer.getShopId().equals(r.getShopId())||!offer.getProductId().equals(line.getProductId())){out.onError(Status.FAILED_PRECONDITION.asRuntimeException());return;}
+                    reply.setShopName(offer.getShopName()).addOffers(CheckoutOffer.newBuilder().setProductId(line.getProductId()).setSkuId(line.getSkuId()).setQuantity(line.getQuantity()).setProductName(offer.getProductName()).setSkuLabel(offer.getSkuLabel()).setNetWeightGrams(offer.getNetWeightGrams()).setUnitPriceVnd(offer.getPriceVnd()).setProductVersion(1));
+                }
+                out.onNext(reply.build());out.onCompleted();
+            }
+            @Override public void holdCheckout(HoldCheckoutRequest r,StreamObserver<CheckoutHoldResult> out){
+                holdCalls.incrementAndGet();holdRequests.add(r);holdHook.run();
+                if(holdFailure.get()!=null){out.onError(holdFailure.get().asRuntimeException());return;}
+                if(holdOverride.get()!=null){out.onNext(holdOverride.get());out.onCompleted();return;}
+                var previous=accepted.putIfAbsent(r.getCheckoutId(),r);
+                if(previous!=null&&!previous.equals(r)){out.onError(Status.INVALID_ARGUMENT.asRuntimeException());return;}
+                var result=decisions.computeIfAbsent(r.getCheckoutId(),ignored->{
+                    if(micros()>=r.getNotAfterEpochMicros())return CheckoutHoldResult.newBuilder().setClosed(CheckoutClosed.newBuilder().setReason(CheckoutClosureReason.CHECKOUT_EXPIRED)).build();
+                    long now=micros();var reservation=ReservationResponse.newBuilder().setBuyerId(r.getBuyerId()).setCheckoutId(r.getCheckoutId()).setShopId(r.getShopId()).setState(ReservationState.HELD).setCreatedAtEpochMicros(now).setExpiresAtEpochMicros(now+900000000);
+                    for(var line:r.getLinesList())reservation.addItems(ReservedItem.newBuilder().setProductId(line.getProductId()).setSkuId(line.getSkuId()).setQuantity(line.getQuantity()).addLots(ReservedLot.newBuilder().setLotId(UUID.randomUUID().toString()).setQuantity(line.getQuantity())));
+                    return CheckoutHoldResult.newBuilder().setReservation(reservation).build();
+                });
+                if(afterHoldFailure.get()!=null){out.onError(afterHoldFailure.get().asRuntimeException());return;}
+                out.onNext(result);out.onCompleted();
+            }
         }).build().start();
         identityChannel=InProcessChannelBuilder.forName(identity).directExecutor().disableRetry().build();
-        catalogChannel=InProcessChannelBuilder.forName(catalog).directExecutor().disableRetry().maxInboundMessageSize(65536).build();
+        catalogChannel=InProcessChannelBuilder.forName(catalog).directExecutor().disableRetry().maxInboundMessageSize(131072).build();
     }
     String account(){String session="session-"+UUID.randomUUID();sessions.put(session,UUID.randomUUID());return session;}
     CartOffer offer(){

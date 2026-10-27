@@ -6,7 +6,7 @@
 
 Response HELD/RELEASED, deadline cố định15phút, release reason CANCELLED/EXPIRED, dòng và lot references chỉ nội bộ. Timestamp epoch microseconds. Idempotency theo checkout vĩnh viễn; cùng payload trả trạng thái hiện tại, không snapshot HELD cũ hoặc gia hạn. Cùng checkout khác payload ALREADY_EXISTS; không thuộc buyer NOT_FOUND.
 
-Status safe: INVALID_ARGUMENT input, FAILED_PRECONDITION eligibility/thiếu tồn, RESOURCE_EXHAUSTED vượt giới hạn lô, UNAVAILABLE dependency/contention/timeout, INTERNAL lỗi lập trình. Không trả SQL/secret/message exception. Request4KiB/maxcalls32 kế thừa listener; reservation caller dùng inbound128KiB/không retry transport. Offers client64KiB vẫn chỉ gọi Offers, chưa có caller reservation trong Commerce. Request chưa rõ kết quả phải đối soát/retry cùng checkout_id. [Guide/proof](../demo-reservations.md).
+Status safe: INVALID_ARGUMENT input, FAILED_PRECONDITION eligibility/thiếu tồn, RESOURCE_EXHAUSTED vượt giới hạn lô, UNAVAILABLE dependency/contention/timeout, INTERNAL lỗi lập trình. Không trả SQL/secret/message exception. Request4KiB/maxcalls32 kế thừa listener; reservation caller dùng inbound128KiB/không retry transport. Offers client64KiB vẫn chỉ gọi Offers, Commerce M3c hiện có caller typed HoldCheckout riêng dùng128KiB, đã nghiệm thu local ngày27/10/2026. Request chưa rõ kết quả phải đối soát/retry cùng checkout_id. [Guide/proof](../demo-reservations.md).
 
 Nguồn machine-readable: [OpenAPI 3.1 JSON](../../contracts/openapi/identity-merchant.v1.openapi.json). Bundle của hai service tách riêng; x-service xác định provider. Ngày 23/10/2026, cả 11 thao tác dưới đây đã triển khai, gồm account/session/CSRF và shop draft/submit/admin review/resubmit. OpenAPI vẫn giữ nguyên revision dùng chung với frontend; mô tả lịch sử trong snapshot không phải báo cáo tiến độ.
 
@@ -80,7 +80,7 @@ Chỉ GET `/api/v1/products` và GET `/api/v1/products/{productId}`, anonymous k
 
 Browse nhận `q` tối đa100codepoints, `origin`120, `category`PRODUCE/SEAFOOD, `shopId`UUID, minPriceVnd/maxPriceVnd số nguyên1..1e9 với min<=max. q/origin strip rồi literal case-insensitive contains, escape wildcard SQL; giá lọc là min mọi SKU kể cả hết tồn. Sort duy nhất created_at DESC,id DESC. Cursor base64url tối đa256ký tự bind normalized filters; đổi filter phải bỏ cursor. Response `{items,nextCursor}` tối đa20items, không count/page/offset. Đọc21candidate, chỉ kiểm20với Merchant tối đa4batch×5ID; cursor từ candidate cuối đã xét, có thể0items mà vẫn còn nextCursor. Client tiếp tục **Xem tiếp** tới khi cursor null; không có snapshot xuyên request.
 
-`FindPublicShops` nhận1–5UUID khác nhau, token/loopback/4KiB, deadline2giây/call, không retry/cache trạng thái. Response chỉ `{id,name}` ACTIVE hiện tại, name1..120codepoints không blank; Merchant omit legacy blank. Catalog kiểm subset/unique/shape/name, lỗi batch sau cũng fail503 toàn page. Public JSON dùng allowlist riêng, không serialize aggregate private; [trường public/private và stock boolean](catalog-security.md#storefront-m2c2--public-projection). Chưa có reservation, checkout hoặc review/Q&A. [Demo/proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront.
+`FindPublicShops` nhận1–5UUID khác nhau, token/loopback/4KiB, deadline2giây/call, không retry/cache trạng thái. Response chỉ `{id,name}` ACTIVE hiện tại, name1..120codepoints không blank; Merchant omit legacy blank. Catalog kiểm subset/unique/shape/name, lỗi batch sau cũng fail503 toàn page. Public JSON dùng allowlist riêng, không serialize aggregate private; [trường public/private và stock boolean](catalog-security.md#storefront-m2c2--public-projection). Tại nghiệm thu M2c2 ngày25/10 chưa có reservation/checkout/review/Q&A; reservation M3b đã nghiệm thu27/10, checkout M3c đã có implementation, đã nghiệm thu local ngày27/10/2026. [Demo/proof backend](../demo-storefront.md); frontend/live/review đã đạt, xem bằng chứng cuối trong demo storefront.
 
 ## 7. Commerce M3a
 
@@ -100,6 +100,31 @@ Key scope **actor+key**; operation/hash phải khớp. Hash bind operation/cartI
 
 [ResolveOffers](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) nhận1–20 distinct SKU UUID, omit missing/ineligible. Response subset/unique/product mapping phải đúng. Listener optional 9093 loopback, token32–256 URL-safe, inbound4 KiB / max 32 calls mỗi connection; Commerce inbound64 KiB/deadline 10 giây/không retry. Identity 2 giây/call, Merchant tối đa 4 batch × 5shop/2 giây mỗi call. [Offer allowlist/validation](catalog-security.md#m3a--catalogoffers-cho-giỏ-hàng).
 
-Sau 200 phải GET mới trước PUT tiếp. Refresh503 chỉ giữ cartId/version cùng refs productId/skuId/quantity của chính giỏ để DELETE, bỏ offer/tên/giá/ảnh cũ; replay version cũ có thể 409 và cần refresh. Khi401/403 hoặc đổi cartId phải xóa dữ liệu/intent riêng và bỏ response account cũ. Đây là hành vi cần nghiệm thu frontend, chưa phải proof frontend/live PASS.
+Sau 200 phải GET mới trước PUT tiếp. Refresh503 chỉ giữ cartId/version cùng refs productId/skuId/quantity của chính giỏ để DELETE, bỏ offer/tên/giá/ảnh cũ; replay version cũ có thể 409 và cần refresh. Khi401/403 hoặc đổi cartId phải xóa dữ liệu/intent riêng và bỏ response account cũ. Đây là hành vi giỏ M3a; proof frontend/live/review đã hoàn tất ngày26/10 ghi riêng trong demo giỏ, không phải proof checkout M3c.
 
 Nguồn: [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0.html), [Spring Security CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html), [Spring Session JDBC](https://docs.spring.io/spring-session/reference/configuration/jdbc.html).
+
+
+## 8. Checkout M3c — implementation đã nghiệm thu local ngày27/10/2026
+
+[ADR-0004](../decisions/0004-order-and-payment-only.md) và [plan M3c](../../tasks/slice-3-checkout.md) thay yêu cầu checkout có vận chuyển. Không nhận shipping/address/parcel/pickup hoặc giá/tổng do client gửi; không trả shippingFee=0 giả. Merchant pickup_address/contact và metadata SKU legacy vẫn giữ trong API đã nghiệm thu, không phải yêu cầu checkout.
+
+| Method/path dưới /api/v1 | Input | Kết quả |
+| --- | --- | --- |
+| POST /me/checkout-previews | {cartId,cartVersion,shopId,skuIds}; CSRF + UUID Idempotency-Key | 200 snapshot server: tên/quy cách/giá/quantity/tổng VND, hết hạn 5 phút; chưa giữ tồn |
+| POST /me/checkouts | {previewId}; CSRF + UUID Idempotency-Key | 200 terminal hoặc 202 PROCESSING; requestKey/checkoutId/orderId/failureCode để recover |
+| GET /me/checkouts/{requestKey} | Key đã có của account hiện tại | Đối chiếu attempt; 404 chưa thấy không chứng minh POST concurrent thất bại |
+| GET /me/orders | cursor tùy chọn | 20 đơn/snapshot, createdAt/id giảm dần; cursor ràng buộc actor, không total |
+| GET /me/orders/{orderId} | UUID | Snapshot riêng buyer; tài nguyên người khác 404 |
+
+Auth/CSRF trước replay, strict JSON/fields/query/UUID và no-store như house conventions. Cùng key/body trả cùng ý định, khác payload 422. Preview dùng một lần; key khác dùng lại preview 409. Khi kết quả chưa rõ giữ đúng key/preview, không tự sinh ý định mới. Catalog QuoteCheckout và HoldCheckout hiện có; HoldCheckout xác minh giá/product version nguyên tử cùng giữ tồn; không thay nghĩa Offers hoặc raw Hold/Get/Release M3b. Chi tiết lease/deadline/recovery theo plan, không retry transport mù.
+
+M3c chỉ AWAITING_PAYMENT/EXPIRED; M3d mới thêm PAID/CANCELLED, VNPAY và HELD → CONSUMED (held/on_hand giảm nguyên tử). PAID terminal khi tiền và tiêu thụ tồn đều xác nhận; Return URL không đủ bằng chứng. Feedback tương lai xác minh dòng đơn PAID qua Commerce. Refund tài chính tiền trễ/trùng giữ riêng; QualityClaim sau giao ngoài phạm vi. Không tạo endpoint GHN/Fulfillment hoặc trạng thái DELIVERED/COMPLETED trong hợp đồng mới.
+
+[OpenAPI checkout hiện có](../../contracts/openapi/commerce-checkout.v1.openapi.json), [CatalogCheckout proto](../../contracts/proto/agora/catalog/v1/catalog_checkout.proto), [demo/evidence](../demo-checkout.md). Năm HTTP operation đã có controller/service/store; đã nghiệm thu local ngày27/10/2026 với root303PASS, actual Catalog/Commerce review CLEAR và live/cleanup được main xác minh; exact evidence ở demo checkout.
+
+Preview trả id/cartId/cartVersion/shopId/shopName/currency/totalVnd/expiresAt/items; item gồm productId/skuId/productName/skuLabel/netWeightGrams/unitPriceVnd/quantity/lineTotalVnd. Quantity lấy từ giỏ, giá/version từ Catalog; không nhận giá client hoặc lộ productVersions/lotrefs qua HTTP. Replay preview trả snapshot gốc và expiry gốc, có thể đã hết hạn. Confirm trả requestKey/checkoutId/state/orderId/failureCode; state PROCESSING/ORDER_CREATED/FAILED, failureCode null hoặc OFFER_UNAVAILABLE/CHECKOUT_EXPIRED/RESERVATION_RELEASED. Order detail trả snapshot items và cartCleared; list trả summary có itemCount, tối đa20, cursor actor-bound. Đọc đơn không gọi Catalog/Merchant.
+
+QuoteCheckout nhận shop và1–20distinct product/SKU/quantity1–99; trả offers với accepted price/product version và expires_at_epoch_micros = Catalog DB time+5phút. HoldCheckout nhận buyer/checkout/shop/not_after và accepted lines; typed CheckoutHoldResult oneof reservation | closed(OFFER_UNAVAILABLE/CHECKOUT_EXPIRED). Token trước validation; cùng listener9093/request4KiB/maxcalls32, response/client inbound128KiB, deadline10giây, không retry transport. Raw Hold/Get/Release và hash M3b giữ tương thích; closed identity không được raw Hold tạo lại.
+
+Attempt commit trước RPC, worker lease30giây/revision/batch20 mỗi10giây. Reconcile cùng HoldCheckout payload sau deadline; Get NOT_FOUND không chứng minh admission đã đóng. RPC503/unknown giữ PROCESSING; typed closure hoặc validated RELEASED mới FAILED. HTTP lỗi strict input/auth/CSRF/version/dependency theo house conventions; lỗi storage vẫn có thể trả503, client phải đối soát cùng key. Order expiry tính khi đọc, không phải PAID hoặc CONSUMED.

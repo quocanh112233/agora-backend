@@ -1,0 +1,51 @@
+syntax = "proto3";
+package agora.catalog.v1;
+option java_package = "com.agora.contracts.catalog.v1";
+option java_multiple_files = true;
+import "agora/catalog/v1/catalog_reservations.proto";
+
+// Trusted Commerce caller authenticates the buyer. No shipping fields.
+service CatalogCheckout {
+  rpc QuoteCheckout(QuoteCheckoutRequest) returns (QuoteCheckoutResponse);
+  rpc HoldCheckout(HoldCheckoutRequest) returns (CheckoutHoldResult);
+}
+message CheckoutLine { string product_id = 1; string sku_id = 2; int32 quantity = 3; }
+message QuoteCheckoutRequest { string shop_id = 1; repeated CheckoutLine lines = 2; }
+message CheckoutOffer {
+  string product_id = 1;
+  string sku_id = 2;
+  int32 quantity = 3;
+  string product_name = 4;
+  string sku_label = 5;
+  int64 unit_price_vnd = 6;
+  int32 net_weight_grams = 7;
+  int64 product_version = 8;
+}
+message QuoteCheckoutResponse { string shop_id = 1; string shop_name = 2; repeated CheckoutOffer offers = 3; int64 expires_at_epoch_micros = 4; }
+message AcceptedCheckoutLine {
+  string product_id = 1;
+  string sku_id = 2;
+  int32 quantity = 3;
+  int64 unit_price_vnd = 4;
+  int64 product_version = 5;
+}
+message HoldCheckoutRequest {
+  string buyer_id = 1;
+  string checkout_id = 2;
+  string shop_id = 3;
+  int64 not_after_epoch_micros = 4;
+  repeated AcceptedCheckoutLine lines = 5;
+}
+
+enum CheckoutClosureReason {
+  CHECKOUT_CLOSURE_REASON_UNSPECIFIED = 0;
+  OFFER_UNAVAILABLE = 1;
+  CHECKOUT_EXPIRED = 2;
+}
+message CheckoutClosed { CheckoutClosureReason reason = 1; }
+message CheckoutHoldResult {
+  oneof result {
+    ReservationResponse reservation = 1;
+    CheckoutClosed closed = 2;
+  }
+}

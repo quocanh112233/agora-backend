@@ -52,7 +52,7 @@ Key giữ tối thiểu 7 ngày, scheduler mỗi giờ xóa record cũ hơn 7 ng
 5. Mutation 200 phải GET mới trước PUT tiếp. Refresh 503 bỏ offer/tên/giá/ảnh cũ, chỉ giữ cartId/version vừa biết cùng productId/skuId/quantity của chính giỏ để DELETE. Catalog down vẫn xóa được; version replay cũ có thể 409 và cần refresh. Không chuyển refs giữa account.
 6. DELETE dòng mất public rồi GET lại; dòng đã thiếu/version đúng là no-op. Quan sát giỏ không tạo reservation/Order, không đổi on_hand/held/allocated và không có checkout/thanh toán giả.
 
-Không guest cart/merge/promotion/shipping quote/xóa toàn giỏ trong M3a. M3b Catalog reservation FEFO/15 phút, M3c Commerce checkout một shop/GHN quote, M3d Payment/VNPAY là bước sau theo plan. Giỏ nhiều shop không đổi chính sách checkout một shop; inStock không hứa giữ/mua/giao hàng.
+Không guest cart/merge/promotion/shipping quote/xóa toàn giỏ trong M3a. Tại nghiệm thu M3a ngày26/10, M3b reservation, M3c checkout và M3d Payment là bước sau. Theo ADR-0004 ngày27/10 đã bỏ GHN; M3b nay đã nghiệm thu và M3c có implementation đã nghiệm thu local ngày27/10/2026; [demo checkout](demo-checkout.md), [plan](../tasks/slice-3-checkout.md). Giỏ nhiều shop không đổi chính sách checkout một shop; inStock không hứa giữ/mua/giao hàng.
 
 ## Nghiệm thu local ngày 26/10/2026
 

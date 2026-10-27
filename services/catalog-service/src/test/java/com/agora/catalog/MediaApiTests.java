@@ -77,7 +77,7 @@ class MediaApiTests {
     final HttpClient http = HttpClient.newHttpClient();
     final JsonMapper json = JsonMapper.builder().build();
     @BeforeEach void reset() {
-        jdbc.execute("TRUNCATE catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
+        jdbc.execute("TRUNCATE catalog.checkout_decisions,catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
         storage.assets.clear(); storage.deleted.clear(); storage.unknown = false; storage.rejectDelete = false;
         storage.uploads.set(0); storage.finds.set(0);
         storage.onUpload = id -> {}; storage.onDelete = id -> {}; storage.metadata = s -> s;

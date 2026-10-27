@@ -33,7 +33,7 @@ class ReservationStoreTests {
         Flyway.configure().dataSource(dataSource).defaultSchema("catalog").schemas("catalog").locations("classpath:db/migration").load().migrate();
     }
     @BeforeEach void setup(){
-        jdbc.execute("TRUNCATE catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
+        jdbc.execute("TRUNCATE catalog.checkout_decisions,catalog.reservation_audit,catalog.reservation_allocations,catalog.reservation_lines,catalog.reservations,catalog.inventory_audit,catalog.inventory_requests,catalog.inventory_lots,catalog.product_images,catalog.image_uploads,catalog.media_requests,catalog.audit_entries,catalog.idempotency_records,catalog.skus,catalog.products");
         store=new JdbcReservationStore(jdbc,new DataSourceTransactionManager(dataSource),clock);
         service=new ReservationService(store,ids->{assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();return Map.of(shop,new PublicShops.Shop(shop,"Shop"));});
     }

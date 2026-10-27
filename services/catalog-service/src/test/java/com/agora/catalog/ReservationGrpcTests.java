@@ -2,6 +2,7 @@ package com.agora.catalog;
 
 import com.agora.catalog.application.*;
 import com.agora.catalog.adapter.inbound.ReservationRpc;
+import com.agora.catalog.adapter.inbound.CheckoutRpc;
 import com.agora.catalog.configuration.CatalogGrpcServer;
 import com.agora.catalog.domain.CatalogFailure;
 import com.agora.catalog.domain.Reservation;
@@ -20,7 +21,7 @@ class ReservationGrpcTests {
     final UUID buyer=UUID.randomUUID(),checkout=UUID.randomUUID(),shop=UUID.randomUUID(),product=UUID.randomUUID(),sku=UUID.randomUUID();
     CatalogGrpcServer server;ManagedChannel channel;
     @BeforeEach void start(){
-        server=new CatalogGrpcServer(mock(CatalogOffersService.class),new ReservationRpc(service),0,RpcFixture.TOKEN);
+        server=new CatalogGrpcServer(mock(CatalogOffersService.class),new ReservationRpc(service),new CheckoutRpc(mock(CheckoutService.class)),0,RpcFixture.TOKEN);
         server.start();channel=ManagedChannelBuilder.forAddress("127.0.0.1",server.port()).usePlaintext().disableRetry().maxInboundMessageSize(131072).build();
     }
     @AfterEach void stop()throws Exception{if(channel!=null)channel.shutdownNow().awaitTermination(5,TimeUnit.SECONDS);if(server!=null)server.stop();}

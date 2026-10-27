@@ -51,8 +51,8 @@ public class ReservationRpc extends CatalogReservationsGrpc.CatalogReservationsI
             observer.onError(Status.INTERNAL.asRuntimeException());
         }
     }
-    private static long micros(Instant value){return Math.addExact(Math.multiplyExact(value.getEpochSecond(),1000000L),value.getNano()/1000);}
-    private static ReservationResponse response(Reservation view){
+    static long micros(Instant value){return Math.addExact(Math.multiplyExact(value.getEpochSecond(),1000000L),value.getNano()/1000);}
+    static ReservationResponse response(Reservation view){
         var result=ReservationResponse.newBuilder().setCheckoutId(view.checkoutId().toString()).setBuyerId(view.buyerId().toString()).setShopId(view.shopId().toString())
                 .setState(ReservationState.valueOf(view.state())).setCreatedAtEpochMicros(micros(view.createdAt())).setExpiresAtEpochMicros(micros(view.expiresAt()));
         if(view.releaseReason()!=null)result.setReleaseReason(ReservationReleaseReason.valueOf(view.releaseReason()));

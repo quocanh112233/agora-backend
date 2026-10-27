@@ -2,6 +2,7 @@ package com.agora.catalog;
 
 import com.agora.catalog.adapter.outbound.GrpcPublicShops;
 import com.agora.catalog.adapter.inbound.ReservationRpc;
+import com.agora.catalog.adapter.inbound.CheckoutRpc;
 import com.agora.catalog.application.*;
 import com.agora.catalog.configuration.CatalogGrpcServer;
 import com.agora.contracts.catalog.v1.*;
@@ -22,7 +23,7 @@ class CatalogOffersGrpcTests {
     ManagedChannel channel;
     @BeforeEach void start() throws Exception {
         rpc=new RpcFixture();
-        server=new CatalogGrpcServer(new CatalogOffersService(store,new GrpcPublicShops(rpc.merchantChannel,RpcFixture.TOKEN),clock),new ReservationRpc(mock(ReservationService.class)),0,RpcFixture.TOKEN);
+        server=new CatalogGrpcServer(new CatalogOffersService(store,new GrpcPublicShops(rpc.merchantChannel,RpcFixture.TOKEN),clock),new ReservationRpc(mock(ReservationService.class)),new CheckoutRpc(mock(CheckoutService.class)),0,RpcFixture.TOKEN);
         server.start();
         channel=ManagedChannelBuilder.forAddress("127.0.0.1",server.port()).usePlaintext().disableRetry().build();
     }
@@ -133,7 +134,7 @@ class CatalogOffersGrpcTests {
         when(store.offers(anyList(),any())).thenReturn(rows);
         PublicShops shops=ids->{var result=new HashMap<UUID,PublicShops.Shop>();ids.forEach(id->result.put(id,new PublicShops.Shop(id,"🐟".repeat(120))));return result;};
         channel.shutdownNow().awaitTermination(5,TimeUnit.SECONDS);server.stop();
-        server=new CatalogGrpcServer(new CatalogOffersService(store,shops,clock),new ReservationRpc(mock(ReservationService.class)),0,RpcFixture.TOKEN);server.start();
+        server=new CatalogGrpcServer(new CatalogOffersService(store,shops,clock),new ReservationRpc(mock(ReservationService.class)),new CheckoutRpc(mock(CheckoutService.class)),0,RpcFixture.TOKEN);server.start();
         channel=ManagedChannelBuilder.forAddress("127.0.0.1",server.port()).usePlaintext().disableRetry().maxInboundMessageSize(65536).build();
         var response=find(ids(rows));
         assertThat(response.getOffersCount()).isEqualTo(20);assertThat(response.getSerializedSize()).isLessThan(65536);
@@ -145,8 +146,8 @@ class CatalogOffersGrpcTests {
     @Test void invalidListenerConfigurationFailsFastAndStopIsIdempotent() {
         var service=new CatalogOffersService(store,ids->Map.of(),clock);
         for(String token:new String[]{null,"","x".repeat(31),"x".repeat(257),"!".repeat(32)})
-            assertThatThrownBy(()->new CatalogGrpcServer(service,new ReservationRpc(mock(ReservationService.class)),0,token)).isInstanceOf(IllegalArgumentException.class);
-        for(int port:new int[]{-1,65536})assertThatThrownBy(()->new CatalogGrpcServer(service,new ReservationRpc(mock(ReservationService.class)),port,RpcFixture.TOKEN)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(()->new CatalogGrpcServer(service,new ReservationRpc(mock(ReservationService.class)),new CheckoutRpc(mock(CheckoutService.class)),0,token)).isInstanceOf(IllegalArgumentException.class);
+        for(int port:new int[]{-1,65536})assertThatThrownBy(()->new CatalogGrpcServer(service,new ReservationRpc(mock(ReservationService.class)),new CheckoutRpc(mock(CheckoutService.class)),port,RpcFixture.TOKEN)).isInstanceOf(IllegalArgumentException.class);
         assertThat(server.isRunning()).isTrue();server.start();server.stop();server.stop();assertThat(server.isRunning()).isFalse();
     }
 }

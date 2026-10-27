@@ -1,12 +1,18 @@
 # Agora — Cấu trúc thư mục
 
+## Phạm vi cấu trúc — 27/10/2026
+
+[ADR-0004](../decisions/0004-order-and-payment-only.md) giữ sáu service Identity/Merchant/Catalog/Commerce/Payment/Feedback. Commerce sở hữu giỏ/checkout/đơn và notification dự kiến; bỏ Fulfillment, không adapter GHN, shipment, pickup hoặc module tính phí/kiện/địa chỉ trong target. Hồ sơ Merchant/contact/pickup_address, metadata SKU và migration đã có giữ nguyên như legacy.
+
+[M3c](../../tasks/slice-3-checkout.md) đã có implementation đã nghiệm thu local ngày27/10/2026: dùng Catalog contract/listener9093 hiện có cho quote/hold giá-version và Commerce house layers cho preview/attempt/recovery/orders. Không thêm service/common library. M3d mới tích hợp Payment/VNPAY và HELD → CONSUMED, giảm held/on_hand nguyên tử; không SHIPPED giả. Order đích AWAITING_PAYMENT → PAID terminal hoặc EXPIRED/CANCELLED; Feedback xác minh dòng đơn PAID. Refund tài chính vẫn trong Payment; claim chất lượng sau giao ngoài phạm vi. Cây dưới phân biệt thành phần hiện có với đường dẫn dự kiến; các proof M2/M3a/M3b giữ theo ngày.
+
 ## Catalog M3b — thành phần reservation
 
 `domain/Reservation.java` chứa immutable Request/Line/Item/Allocation và canonical hash; `application/ReservationService.java` điều phối Merchant/replay và expiry scheduler; port `ReservationStore.java` và adapter `JdbcReservationStore.java` giữ transaction/khóa/counters. `adapter/inbound/ReservationRpc.java` map protobuf qua service, đăng ký cùng Offers trong CatalogGrpcServer. [Proto](../../contracts/proto/agora/catalog/v1/catalog_reservations.proto) được build bởi catalog-contract hiện có, không thêm module/dependency. [V6](../../services/catalog-service/src/main/resources/db/migration/V6__reservations.sql) thêm reservation schema.
 
-Tests: ReservationDomainTests, ReservationServiceTests, ReservationStoreTests, ReservationGrpcTests và ReservationRpcIntegrationTests. PostgreSQL test biệt lập; integration dùng listener TCP thật, Merchant fixture gRPC, Clock kiểm soát. Frontend/Commerce HTTP không thay đổi. [Guide và evidence](../demo-reservations.md).
+Tests: ReservationDomainTests, ReservationServiceTests, ReservationStoreTests, ReservationGrpcTests và ReservationRpcIntegrationTests. PostgreSQL test biệt lập; integration dùng listener TCP thật, Merchant fixture gRPC, Clock kiểm soát. Tại nghiệm thu M3b 27/10 lúc10:14:28+07:00, frontend/Commerce HTTP không thay đổi; source M3c hiện có được ghi riêng. [Guide và evidence](../demo-reservations.md).
 
-Trạng thái 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local đến M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback, fulfillment/notification chưa triển khai. backend/frontend là hai repo riêng; không tạo repo thứ ba hoặc phụ thuộc filesystem repo kia khi build. Mọi service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
+Trạng thái 26/10/2026: Identity/Merchant/Catalog đã nghiệm thu local đến M2c2; Commerce là service thứ tư đã triển khai giỏ M3a. Root backend 226 tests đạt theo main 10:55:16 +07:00; M3a đã nghiệm thu local ngày 26/10 sau review, live và cleanup. Payment/Feedback và notification chưa triển khai tại mốc lịch sử này. backend/frontend là hai repo riêng; không tạo repo thứ ba hoặc phụ thuộc filesystem repo kia khi build. Mọi service dùng PostgreSQL theo [ADR-0003](../decisions/0003-postgresql-only.md).
 
 ## 1. Repo backend
 
@@ -17,14 +23,14 @@ backend/
 ├── services/
 │   ├── identity-service/           # Đã có
 │   ├── merchant-service/           # Đã có, tách riêng
-│   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô và public browse/detail
-│   ├── commerce-service/           # Giỏ M3a, PostgreSQL riêng, HTTP 8084
+│   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô, public read và reservation M3b
+│   ├── commerce-service/           # Giỏ M3a; checkout/đơn M3c đã nghiệm thu local ngày27/10/2026, HTTP8084
 │   ├── payment-service/
 │   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
 ├── libraries/
 │   ├── identity-contract/          # Sinh Java/protobuf từ contract Identity
 │   ├── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
-│   └── catalog-contract/           # Sinh Java/protobuf cho CatalogOffers v1
+│   └── catalog-contract/           # Sinh Java/protobuf cho Offers, Reservations, Checkout v1
 ├── contracts/
 │   ├── openapi/                    # Nguồn HTTP contract; JSON OpenAPI
 │   ├── proto/                      # Nguồn .proto khi có service cần giao tiếp
@@ -142,4 +148,12 @@ Contract riêng `contracts/openapi/catalog-inventory.v1.openapi.json`; frontend 
 
 [Commerce](../../services/commerce-service/src/main/java/com/agora/commerce/CommerceApplication.java) giữ house layers: domain Cart/CartFailure; application CartService/CartStore/IdentityAccess/CatalogOffers; inbound CartController/ApiErrors/metadata; outbound JdbcCartStore/GrpcIdentityAccess/GrpcCatalogOffers và gRPC wiring. [V1](../../services/commerce-service/src/main/resources/db/migration/V1__commerce_cart.sql) tạo ba bảng commerce. Không phụ thuộc JAR service khác hoặc thêm common library.
 
-Catalog thêm [CatalogOffersService](../../services/catalog-service/src/main/java/com/agora/catalog/application/CatalogOffersService.java), batch projection StorefrontStore/JdbcStorefrontStore và optional [CatalogGrpcServer](../../services/catalog-service/src/main/java/com/agora/catalog/configuration/CatalogGrpcServer.java) 9093. [Proto](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) sinh Java qua [catalog-contract](../../libraries/catalog-contract/pom.xml). HTTP Catalog giữ ranh giới seller/public. [Demo giỏ](../demo-cart.md) ghi backend proof và phần còn chờ.
+Catalog thêm [CatalogOffersService](../../services/catalog-service/src/main/java/com/agora/catalog/application/CatalogOffersService.java), batch projection StorefrontStore/JdbcStorefrontStore và optional [CatalogGrpcServer](../../services/catalog-service/src/main/java/com/agora/catalog/configuration/CatalogGrpcServer.java) 9093. [Proto](../../contracts/proto/agora/catalog/v1/catalog_offers.proto) sinh Java qua [catalog-contract](../../libraries/catalog-contract/pom.xml). HTTP Catalog giữ ranh giới seller/public. [Demo giỏ](../demo-cart.md) ghi proof M3a đã nghiệm thu local ngày26/10; không suy ra checkout M3c đã triển khai.
+
+## M3c — thành phần hiện có, đã nghiệm thu local ngày27/10/2026
+
+Catalog thêm domain Checkout, application CheckoutService/CheckoutStore, inbound CheckoutRpc; JdbcReservationStore hiện thực quote/replay/accepted hold với savepoint và permanent decision. CatalogGrpcServer đăng ký CatalogCheckout trên listener hiện có. [Proto](../../contracts/proto/agora/catalog/v1/catalog_checkout.proto) dùng catalog-contract; [V7](../../services/catalog-service/src/main/resources/db/migration/V7__checkout_decisions.sql) thêm decision/accepted_not_after.
+
+Commerce thêm domain Checkout (Preview/Snapshot/Attempt/Work/Order/Summary/Page), application CheckoutService/CheckoutStore/CheckoutCatalog, inbound CheckoutController, outbound JdbcCheckoutStore/GrpcCheckoutCatalog; tái sử dụng IdentityAccess/cart/catalogChannel. [V2](../../services/commerce-service/src/main/resources/db/migration/V2__commerce_checkout.sql) tạo previews/attempts/orders JSONB, không thêm service/dependency hoặc bảng order_lines. CheckoutService recover attempt mỗi10giây; order expiry tính khi đọc.
+
+[OpenAPI](../../contracts/openapi/commerce-checkout.v1.openapi.json), [plan](../../tasks/slice-3-checkout.md), [demo/evidence](../demo-checkout.md). CheckoutStoreTests và CheckoutAdmissionTests có final evidence: Catalog75focused gồm13CheckoutStore/PauliCLEAR, Commerce40module/BanachCLEAR; root303PASS trên39current classes, live/cleanup đã được main xác minh. Exact gates ở demo checkout.

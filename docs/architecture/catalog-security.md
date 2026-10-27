@@ -2,7 +2,7 @@
 
 ## M3b — reservation nội bộ
 
-CatalogReservations chia sẻ loopback9093/token constant-time với Offers. Token là service authentication; buyer_id không tự chứng minh người dùng, Commerce phải xác thực trước gọi khi có checkout. M3b chưa expose public HTTP. Mỗi Get/Release/replay kiểm buyer/checkout, mismatch NOT_FOUND; payload mismatch cùng owner ALREADY_EXISTS. Replay không bỏ qua token hoặc owner và không cần shop còn ACTIVE để trả tồn.
+CatalogReservations chia sẻ loopback9093/token constant-time với Offers. Token là service authentication; buyer_id không tự chứng minh người dùng, Commerce M3c hiện xác thực account/session/CSRF trước HTTP preview/confirm; [demo checkout](../demo-checkout.md) ghi implementation đã nghiệm thu local ngày27/10/2026. M3b chưa expose public HTTP. Mỗi Get/Release/replay kiểm buyer/checkout, mismatch NOT_FOUND; payload mismatch cùng owner ALREADY_EXISTS. Replay không bỏ qua token hoặc owner và không cần shop còn ACTIVE để trả tồn.
 
 Lot references chỉ trả trên RPC nội bộ, không thêm vào PublicProduct/CartOffer. Không nhận counters/deadline/state do caller cấp. Hold local eligibility kiểm dưới parent lock; stock allocation và permanent identity commit cùng audit/counters. Error mapping không lộ SQL/host/token. Timeout/worker contention phải retry an toàn, không bỏ qua kiểm tồn. [Thiết kế](../../tasks/slice-3-reservations.md), [guide/proof](../demo-reservations.md).
 
@@ -14,7 +14,7 @@ Trình duyệt gửi cookie AGORA_SESSION và masked CSRF qua Next rewrite cùng
 
 Mỗi request seller, kể cả read và idempotency replay, phải đi qua hai kiểm tra này. Shop chưa duyệt/bị đình chỉ và account không còn hợp lệ phải bị từ chối. Không đọc session/merchant tables từ Catalog. Product của shop khác trả 404, không trả snapshot replay hoặc dữ liệu riêng.
 
-Đây là hai lời gọi đồng bộ trước transaction Catalog, không phải transaction khóa xuyên service. Nếu shop đổi trạng thái sau lúc xác minh, thao tác đang chạy có thể hoàn tất; request tiếp theo phải đọc trạng thái mới. Visibility cũng xác minh quyền tại request, không cấp quyền checkout. Storefront kiểm shop hiện tại qua FindPublicShops; checkout sau này phải có policy riêng thay vì chỉ tin status hoặc boolean tồn đã đọc.
+Đây là hai lời gọi đồng bộ trước transaction Catalog, không phải transaction khóa xuyên service. Nếu shop đổi trạng thái sau lúc xác minh, thao tác đang chạy có thể hoàn tất; request tiếp theo phải đọc trạng thái mới. Visibility cũng xác minh quyền tại request, không cấp quyền checkout. Storefront kiểm shop hiện tại qua FindPublicShops; checkout M3c xác minh lại shop ACTIVE/giá/version và giữ đủ stock, không chỉ tin status hoặc boolean tồn đã đọc.
 
 ## Transport và lỗi
 
@@ -70,7 +70,7 @@ Ba operation lô riêng theo [contract](../../contracts/openapi/catalog-inventor
 
 Hash bind productId+lotId+body. Claim/replay trước kiểm expiry/state/version động để retry qua nửa đêm trả snapshot gốc, không nhập/phân bổ hai lần. Snapshot không phải quyết định bán hàng; UI phải GET trạng thái mới. Khóa/mở không đổi bộ đếm; lô hết hạn không mở lại. Lot/audit/key commit cùng transaction, constraint không âm/không vượt tồn và FK triple không cascade. Root150tests16:03:17 gồm11API/6domain mới, kiểm concurrent key/race SKU, rollback audit, midnight replay/GET expiry, SQL bounds và migrationV3→V4.
 
-Review frontend đã sửa việc lỗi GET đầu che denial của GET thứ hai và select tự đổi sang SKU khác sau refresh. Mỗi GET quan sát denial riêng; lựa chọn SKU mất phải chọn lại rõ ràng, giữ các field khác. Focus error server dùng effect sau commit, còn validation local focus field. Bằng chứng runtime177fixture/98unit/5live ở [proof](../../../frontend/docs/catalog-inventory-proof.md) là M2c1, không thay proof storefront. Chưa có reservation/checkout hoặc proof production.
+Review frontend đã sửa việc lỗi GET đầu che denial của GET thứ hai và select tự đổi sang SKU khác sau refresh. Mỗi GET quan sát denial riêng; lựa chọn SKU mất phải chọn lại rõ ràng, giữ các field khác. Focus error server dùng effect sau commit, còn validation local focus field. Bằng chứng runtime177fixture/98unit/5live ở [proof](../../../frontend/docs/catalog-inventory-proof.md) là M2c1, không thay proof storefront. Tại nghiệm thu M2c1 ngày24/10 chưa có reservation/checkout hoặc proof production; không dùng proof đó cho M3c hiện tại.
 
 ## Storefront M2c2 — public projection
 
@@ -95,7 +95,7 @@ Browse sort created_at DESC,id DESC, SQL đọc tối đa21candidate và chỉ x
 
 `MerchantAccess.FindPublicShops` chỉ nhận1–5UUID khác nhau, giữ token nội bộ/loopback/4KiB. Chỉ trả `{id,name}` cho shop ACTIVE hiện tại, không cache status. Tên tối đa120codepoints giữ nguyên; tên legacy chỉ khoảng trắng bị omit, tên null/quá giới hạn là lỗi. Catalog kiểm subset/unique/shape/name; RPC down/timeout/malformed hoặc một batch sau lỗi làm cả request503, không trả page một phần. Deadline2giây/call, không retry. Public không suy ra trạng thái account owner từ shop ACTIVE; account bị khóa không tự đổi status shop.
 
-Detail đọc product/SKU/images/stock trong snapshot REPEATABLE_READ ngắn, đóng transaction trước gọi Merchant. Không có transaction xuyên service; lần GET sau phải kiểm lại trạng thái hiện tại. Public StorefrontService chỉ map lỗi kết nối/resource DB hoặc không mở được transaction thành503 an toàn; lỗi SQL lập trình vẫn500. [Demo và proof backend theo ngày](../demo-storefront.md); frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront. Chưa có reservation/FEFO allocation, checkout, GHN/VNPAY, review/Q&A hoặc profile shop đầy đủ.
+Detail đọc product/SKU/images/stock trong snapshot REPEATABLE_READ ngắn, đóng transaction trước gọi Merchant. Không có transaction xuyên service; lần GET sau phải kiểm lại trạng thái hiện tại. Public StorefrontService chỉ map lỗi kết nối/resource DB hoặc không mở được transaction thành503 an toàn; lỗi SQL lập trình vẫn500. [Demo và proof backend theo ngày](../demo-storefront.md); frontend/live/review đã hoàn tất, bằng chứng cuối ghi trong demo storefront. Tại nghiệm thu M2c2 ngày25/10 chưa có reservation/FEFO allocation hoặc checkout. M3b nay đã nghiệm thu, M3c đã nghiệm thu local ngày27/10/2026; VNPAY/review/Q&A/profile shop đầy đủ chưa triển khai, GHN đã bỏ theo ADR-0004.
 
 ## M3a — CatalogOffers cho giỏ hàng
 
@@ -106,3 +106,9 @@ Detail đọc product/SKU/images/stock trong snapshot REPEATABLE_READ ngắn, đ
 Offer chỉ productId/skuId/shopId/shopName/productName/skuLabel/priceVnd/netWeightGrams/inStock/thumbnail; thumbnail chỉ url/width/height. Không owner/contact/pickup, lot/exact count/version/audit, SKU code/shipping fields hoặc upload intent. Commerce kiểm IDs subset/unique/product mapping; tên raw nonblank theo codepoints (shop 1..120, product 3..160, label 1..100), giá nguyên1..1e9 VND, net 1..50000 gram, URL Cloudinary namespace đúng product≤512 ký tự, kích thước dương/tích≤20 triệu pixel.
 
 Commerce inbound64 KiB/deadline 10 giây, Merchant 2 giây/call, không retry. RPC/dependency/malformed response làm503 toàn cart, không partial success hoặc fallback giá/tên cũ. DELETE không gọi Catalog; khi refresh lỗi client chỉ giữ refs tối thiểu của chính giỏ để xóa. [HTTP contract](../../contracts/openapi/commerce-cart.v1.openapi.json), [demo/proof](../demo-cart.md). Giỏ không giữ hàng hoặc checkout theo inStock.
+
+## M3c — accepted checkout đã nghiệm thu local ngày27/10/2026
+
+[CatalogCheckout proto](../../contracts/proto/agora/catalog/v1/catalog_checkout.proto), [HTTP contract](../../contracts/openapi/commerce-checkout.v1.openapi.json), [plan](../../tasks/slice-3-checkout.md), [demo/evidence](../demo-checkout.md). Token kiểm trước input/persistence; Commerce xác thực buyer hiện tại/CSRF trước replay. HTTP không nhận giá/version/deadline hay lot do browser cấp; deadline accepted nội bộ lấy exact expiry do Catalog DB cấp, không đổi raw Hold contract. Product versions và lotrefs chỉ nội bộ.
+
+Accepted hold kiểm giá/version cùng FEFO dưới parent locks. Permanent decision/identity lock bảo vệ stale worker và raw Hold; replay kiểm owner/hash trước trả reservation/closed. Không chốt FAILED bằng Get NOT_FOUND+local clock hoặc transport rejection chưa rõ. M3c đã nghiệm thu local ngày27/10/2026: root303PASS, Catalog PauliCLEAR/Commerce BanachCLEAR, real4app+Cloudinary và cleanup đã được main xác minh; đây là local evidence, chưa deploy. Validated HELD từ Catalog tạo Order bất kể Commerce clock; chỉ typed closed/validated RELEASED chốt FAILED, còn expiry khi đọc dùng Commerce DB.

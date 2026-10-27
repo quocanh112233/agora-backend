@@ -1,16 +1,24 @@
 # Agora — Kế hoạch triển khai
 
+## Phạm vi và bước tiếp — 27/10/2026
+
+[ADR-0004](../docs/decisions/0004-order-and-payment-only.md) thay các yêu cầu logistics cũ: chỉ đặt hàng/thanh toán, không GHN/Fulfillment, shipping/pickup, địa chỉ giao nhận, kiện, phí hoặc tracking. Tổng đơn bằng tổng tiền hàng; sáu service giữ nguyên. Hồ sơ Merchant/contact/pickup_address, quy cách SKU, allocated legacy và migration cũ giữ nguyên, không xóa dữ liệu.
+
+Canonical tracker hiện hành `slice-3-checkout`, [plan M3c](slice-3-checkout.md). M3c đã có implementation trong workspace, **đã nghiệm thu local ngày27/10/2026**. [Demo/evidence](../docs/demo-checkout.md), [HTTP contract](../contracts/openapi/commerce-checkout.v1.openapi.json), [proto](../contracts/proto/agora/catalog/v1/catalog_checkout.proto) ghi final evidence: root303PASS ngày27/10 lúc17:12:38+07:00, Pauli/BanachCLEAR, frontend143unit/272productionfixture/build VDJE0OiaLvYN78ua-ytLE/audit0, real4app+Cloudinary1/1PASS và baseline5/5PASS, cleanup đã xác minh. M3b đã nghiệm thu. M3c: preview server 5 phút, xác nhận giá/version cùng FEFO hold, workflow lease/recovery, tạo/xem đơn AWAITING_PAYMENT/EXPIRED và dọn giỏ có version guard. Không triển khai thanh toán hoặc nút payment giả trong M3c.
+
+M3d mới có VNPAY sandbox và HELD → CONSUMED, giảm held/on_hand nguyên tử, không SHIPPED giả/luồng ALLOCATED. Order đích AWAITING_PAYMENT → PAID terminal hoặc EXPIRED/CANCELLED; PAID sau xác minh tiền và consume. Feedback xác minh dòng đơn PAID. QualityClaim sau giao/return shipment ngoài phạm vi; refund tài chính cho tiền trễ/trùng vẫn cần, có đối chiếu/hạn mức/chống trùng. GHN credential không còn là blocker. Các số proof bên dưới giữ theo ngày, không chứng minh M3c đã hoàn tất.
+
 ## M3b ngày27/10/2026 — reservation Catalog
 
-Canonical tracker `slice-3-reservations`; [thiết kế](slice-3-reservations.md), [proto](../contracts/proto/agora/catalog/v1/catalog_reservations.proto), [guide/proof](../docs/demo-reservations.md). M3b đã nghiệm thu local27/10: root274tests đạt lúc10:14:28+07:00 (13Identity/59Merchant/178Catalog/24Commerce), review actual core/RPC CLEAR. Ba finding core và một lỗi phân loại RPC đều đã sửa với RED/GREEN; chi tiết trong guide. Chỉ hoàn thiện M3b, chưa mở M3c checkout/GHN hoặc M3dVNPAY. Mọi trạng thái chưa reservation trong mốc M2/M3a dưới đây là lịch sử.
+Canonical tracker `slice-3-reservations`; [thiết kế](slice-3-reservations.md), [proto](../contracts/proto/agora/catalog/v1/catalog_reservations.proto), [guide/proof](../docs/demo-reservations.md). M3b đã nghiệm thu local27/10: root274tests đạt lúc10:14:28+07:00 (13Identity/59Merchant/178Catalog/24Commerce), review actual core/RPC CLEAR. Ba finding core và một lỗi phân loại RPC đều đã sửa với RED/GREEN; chi tiết trong guide. Tại nghiệm thu M3b chưa mở checkout M3c hoặc VNPAY M3d; phạm vi bước tiếp theo theo ADR-0004 ở trên. Mọi trạng thái chưa reservation trong mốc M2/M3a dưới đây là lịch sử.
 
 ## Cập nhật M3a ngày 26/10 — giỏ hàng đã có implementation
 
-Canonical tracker hiện tại slice-3-cart; [plan M3a](slice-3-cart.md), [OpenAPI giỏ](../contracts/openapi/commerce-cart.v1.openapi.json), [CatalogOffers proto](../contracts/proto/agora/catalog/v1/catalog_offers.proto), [demo giỏ](../docs/demo-cart.md). Commerce là service thứ tư: HTTP 8084, PostgreSQL agora_commerce/schema commerce/V1; Catalog thêm optionalgRPC9093 và library catalog-contract. Giỏ đăng nhập nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng; GET current offers, PUT tuyệt đối, DELETE độc lập Catalog. cartId ràng buộc account, auth/CSRF trước replay, version/key7 ngày và preflight+row-lock replay; refresh lỗi chỉ giữ refs tối thiểu để xóa. Không giữ tồn/reservation/checkout.
+Tracker M3a tại ngày26/10 là `slice-3-cart`; [plan M3a](slice-3-cart.md), [OpenAPI giỏ](../contracts/openapi/commerce-cart.v1.openapi.json), [CatalogOffers proto](../contracts/proto/agora/catalog/v1/catalog_offers.proto), [demo giỏ](../docs/demo-cart.md). Commerce là service thứ tư: HTTP 8084, PostgreSQL agora_commerce/schema commerce/V1; Catalog thêm optionalgRPC9093 và library catalog-contract. Giỏ đăng nhập nhiều shop/tối đa 20 SKU/1–99 gói mỗi dòng; GET current offers, PUT tuyệt đối, DELETE độc lập Catalog. cartId ràng buộc account, auth/CSRF trước replay, version/key7 ngày và preflight+row-lock replay; refresh lỗi chỉ giữ refs tối thiểu để xóa. Không giữ tồn/reservation/checkout.
 
 Main xác minh root verify ngày **26/10/2026 lúc 10:55:16 +07:00: BUILD SUCCESS, 226 tests = 13 Identity + 59 Merchant + 130 Catalog + 24 Commerce; 0 fail/error/skip**. Commerce 24 = 6 domain + 15 API + 3 service; Catalog thêm 17 = 12 gRPC + 4 SQL + 1 configuration. Đây là bằng chứng backend do main cung cấp; **M3a đã nghiệm thu local ngày 26/10: frontend 136 unit, 243 fixture production, 5 normal live và 1 cart/provider live đạt; hai lỗi review đã sửa và re-review CLEAR**.
 
-M3b Catalog reservation FEFO, M3c Commerce checkout một shop/GHN quote, M3d Payment/VNPAY vẫn là bước sau theo plan M3a. Chưa mở implementation các phần đó; không tạo checklist/tracker song song. Các mốc M1/M2 bên dưới là lịch sử theo ngày.
+Lịch sử plan M3a ngày26/10: M3b reservation, M3c checkout một shop và M3d Payment/VNPAY là bước sau, khi đó chưa triển khai. M3b nay đã nghiệm thu; logistics cũ không còn trong M3c theo ADR-0004; không tạo checklist/tracker song song. Các mốc M1/M2 bên dưới là lịch sử theo ngày.
 
 Trạng thái ngày 24/10/2026 sau resume 15:10: M1 tài khoản/mở shop/admin review, Catalog M2a và ảnh M2b1 đã nghiệm thu local. M2b2 công bố/ẩn đã nghiệm thu local ngày 24/10/2026 khoảng 15:40 +07:00; P2 đã sửa/review chấp nhận, normal live 4/4 và media/publication live 2/2 PASS; hai asset mới đã xác minh cleanup DB/provider; frontend build/lint/typecheck, 86 unit và 144 fixture sau sửa đã PASS, cleanup hai asset trước pause đã xác minh. Người dùng đã commit M2b2 backend `ff27aaa` và frontend `875863b`; không suy ra đã push hoặc CI đã chạy. [ADR-0002](../docs/decisions/0002-separate-identity-merchant.md) thay lựa chọn gộp service; [ADR-0003](../docs/decisions/0003-postgresql-only.md) chốt PostgreSQL cho mọi service. Không yêu cầu duyệt lại lựa chọn thông thường; cần hỏi khi phát sinh tài khoản ngoài/chi phí/publish ngoài phạm vi.
 
@@ -32,7 +40,7 @@ Main báo root verify **25/10/2026 20:50:38 +07:00 BUILD SUCCESS,185tests=13Iden
 
 [Use case](../docs/product/use-cases.md), [state machines](../docs/product/state-machines.md), [kiến trúc](../docs/architecture/architecture-overview.md), [cấu trúc](../docs/architecture/project-structure.md), [dữ liệu](../docs/architecture/data-model.md), [OpenAPI](../contracts/openapi/identity-merchant.v1.openapi.json).
 
-Task canonical: claude-mem work_state; list hiện tại `slice-3-cart`, các list trước gồm `slice-2-storefront`, `slice-1-onboarding`, `slice-2-catalog` và `slice-2-inventory`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
+Task canonical: claude-mem work_state; list hiện tại `slice-3-checkout`, các list trước gồm `slice-3-reservations`, `slice-3-cart`, `slice-2-storefront`, `slice-1-onboarding`, `slice-2-catalog` và `slice-2-inventory`. Mỗi task có acceptance, verify, dependencies và files trong tracker; không tạo tasks/todo.md trùng lặp. Bảng dưới là chỉ mục có thể đọc khi không có plugin, không phải trạng thái task thay thế tracker.
 
 ## 2. Lát cắt 1
 
@@ -87,14 +95,14 @@ M2 đã có [sản phẩm/SKU M2a](slice-2-catalog.md), [ảnh M2b1](slice-2-med
 
 Root verify lịch sử 24/10 lúc 10:57:21 +07:00 đạt **133 tests (13 Identity + 44 Merchant + 76 Catalog)**. Frontend trước pause đạt **86 unit, 125 fixture production, 4 normal live, 2 media/publication live**. Sau resume, production build/lint/typecheck PASS, **86 unit và 144 fixture production PASS (23.8s)**, gồm **19 regression revalidation mới**; focused trước đó 18 GREEN sau 14 expected RED trên build cũ. Audit native mới ngày 24/10 exit 0/zero vulnerabilities. Main exact lookup hai asset publication/media tương thích trước pause khoảng 15h: all_missing=true, exit 0. Scan 216 Git-visible files/0 actual-secret matches; env mode 600 và contract digest/57–51 refs hợp lệ. Final static review Heisenberg clear, không còn code blocker; P2 fixed/review accepted. Normal live **4/4 PASS (6.7s)**, output `publication-resume-normal-live-green-20261024/`, gồm shared-session logout/re-login/editor-list clearing/recovery và giữ giá dirty khi focus. Test-only fix chờ DELETE logout 204 thay vì nav link luôn hiện, production code không đổi. Media/publication live **2/2 PASS (8.2s)**, output `publication-resume-media-live-20261024/`. M2b2 đã nghiệm thu local sau main xác minh hai asset mới DELETED/0 relation, final DRAFT/version 2 và HIDDEN/version 7; independent exact provider lookup 2 asset all_missing=true/exit 0. Runtime cleanup đã xác nhận: Next và ba backend đã dừng, backend graceful exit 130; container `--rm` đã bị xóa sau kiểm ID/label và docker stop exit 0, các cổng 3000/8081/8082/8083/9091/9092 đã đóng. `.env.live-test` ignored mode 600 hiện STALE; không giữ demo/named volume, chạy lại cần fixture/ADMIN mới. Native database giữ nguyên. Main xác nhận final secret scan sau cập nhật docs: 216 Git-visible files/0 actual-secret matches, cả hai env mode 600; 34 Markdown files/207 local links/0 broken, code fences cân bằng. Không có production hoặc GitHub Actions run claim.
 
-M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; M2c2 storefront/public browse/detail đã triển khai, đã nghiệm thu local ngày 25/10/2026. Reservation/FEFO allocation và checkout chưa triển khai. PUBLISHED/inStock không chứng minh mua/giao được; bảng mốc bên dưới vẫn là đích, không phải nghiệm thu toàn M2.
+M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; M2c2 storefront/public browse/detail đã triển khai, đã nghiệm thu local ngày 25/10/2026. Tại mốc25/10 reservation và checkout chưa triển khai; M3b đã nghiệm thu27/10, M3c vẫn chưa có proof. PUBLISHED/inStock không chứng minh mua được; bảng mốc bên dưới vẫn là đích, không phải nghiệm thu toàn M2.
 
 | Mốc | Luồng hoàn chỉnh | Điều kiện chú ý |
 |---|---|---|
 | M2 | Shop hoạt động đăng sản phẩm, ảnh Cloudinary và lô; khách tìm/xem | Thêm Catalog, gRPC auth/merchant, FE catalog, kiểm tra quyền ảnh |
-| M3 | Giỏ nhiều shop; checkout một shop, GHN báo giá, giữ tồn, tạo đơn | Kiểm tra GHN staging/địa chỉ sớm; tồn cuối và hết hạn |
-| M4 | VNPAY sandbox, GHN tạo/đồng bộ, nhận hàng | Tiền muộn, timeout, webhook, RabbitMQ/outbox, refund |
-| M5 | Review/Q&A/reply PostgreSQL, claim/refund, đối soát mô phỏng | Feedback sở hữu agora_feedback/Flyway; unique dòng đơn, rating 1–5, quyền đã mua, hạn mức hoàn, hàng hỏng không nhập tự động |
+| M3 | Giỏ M3a và hold M3b đã nghiệm thu; M3c preview/checkout một shop, tạo/xem đơn chờ thanh toán | Giá/version/FEFO nguyên tử; intent bền vững, recovery và hết hạn; M3c đã nghiệm thu local ngày27/10/2026 |
+| M4 | Payment/VNPAY M3d, consume tồn và PAID terminal | IPN/tiền muộn/trùng, timeout/expiry/consume races, outbox/dedup, refund tài chính |
+| M5 | Review/Q&A/reply PostgreSQL, đối soát mô phỏng | Feedback sở hữu agora_feedback/Flyway; unique dòng đơn PAID, rating 1–5; không claim sau giao hoặc mốc DELIVERED/COMPLETED |
 | M6 | Hoàn thiện Identity/quản trị, ảnh avatar, demo/CI/README portfolio | Khôi phục mật khẩu có token dùng một lần; bổ sung tính năng còn lại từ UC |
 
 Đây là mốc định hướng, chưa phải task đã chia nhỏ hay chức năng đã triển khai. Chỉ lập task chi tiết khi mốc gần nhất đã rõ hợp đồng.
@@ -108,8 +116,13 @@ M2c1 nhập lô/khóa/mở đã triển khai và qua gate local; M2c2 storefront
 | Phiên bản Java/Boot/tooling không khớp plugin | Bootstrap kiểm tra tương thích, ghim wrapper/dependencies/lockfile, lưu bản thực tế |
 | Hai repo lệch API | Một OpenAPI canonical, frontend ghim revision; test contract khi đổi |
 | Session cookie/CSRF bị mất qua routing | E2E kiểm tra Set-Cookie, token mới sau login/logout, no-store và quyền ở backend |
-| GHN/VNPAY chưa cấp quyền callback/refund | Probe staging trước luồng hoàn chỉnh; fixture gắn nhãn, không giả vờ provider thành công |
+| VNPAY chưa cấp quyền IPN/tra cứu/refund | Kiểm tra sandbox khi đến M3d; fixture gắn nhãn, không giả vờ provider thành công; không cần GHN account |
 | Chi phí/credential Cloudinary và hosting | Chỉ cấu hình khi được cung cấp; không xin secret qua log hoặc commit |
 | Scope kéo dài vì không có deadline | Hoàn thành từng luồng dọc; không mở hết service đồng thời |
 
 Không commit/push/deploy tự động trong bước chuẩn bị này.
+
+
+## Ranh giới nghiệm thu M3c — 27/10/2026
+
+Main độc lập xác minh root303PASS trên39current classes,0fail/error/skip,180backend/120frontend source hashes không đổi sau gates. [Demo checkout](../docs/demo-checkout.md) ghi exact log/manifest/runtime/cleanup; backend.env/native không đổi, không commit/push/deploy. M3c dừng ở đây. M3d VNPAY là bước tiếp theo chưa triển khai, không thuộc nghiệm thu này. Validated HELD của Catalog là authority tạo Order; Commerce DB chỉ tính expiry khi đọc, không đổi HELD thành FAILED theo local clock.
