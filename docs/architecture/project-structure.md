@@ -1,10 +1,10 @@
 # Agora — Cấu trúc thư mục
 
-## Phạm vi cấu trúc — 27/10/2026
+## Phạm vi cấu trúc — 28/10/2026
 
-[ADR-0004](../decisions/0004-order-and-payment-only.md) giữ sáu service Identity/Merchant/Catalog/Commerce/Payment/Feedback. Commerce sở hữu giỏ/checkout/đơn và notification dự kiến; bỏ Fulfillment, không adapter GHN, shipment, pickup hoặc module tính phí/kiện/địa chỉ trong target. Hồ sơ Merchant/contact/pickup_address, metadata SKU và migration đã có giữ nguyên như legacy.
+[ADR-0004](../decisions/0004-order-and-payment-only.md) giữ sáu service Identity/Merchant/Catalog/Commerce/Payment/Feedback. Commerce sở hữu giỏ/checkout/đơn, capture application và notification dự kiến; bỏ Fulfillment, không adapter GHN, shipment, pickup hoặc module tính phí/kiện/địa chỉ trong target. Hồ sơ Merchant/contact/pickup_address, metadata SKU và migration đã có giữ nguyên như legacy.
 
-[M3c](../../tasks/slice-3-checkout.md) đã có implementation đã nghiệm thu local ngày27/10/2026: dùng Catalog contract/listener9093 hiện có cho quote/hold giá-version và Commerce house layers cho preview/attempt/recovery/orders. Không thêm service/common library. M3d mới tích hợp Payment/VNPAY và HELD → CONSUMED, giảm held/on_hand nguyên tử; không SHIPPED giả. Order đích AWAITING_PAYMENT → PAID terminal hoặc EXPIRED/CANCELLED; Feedback xác minh dòng đơn PAID. Refund tài chính vẫn trong Payment; claim chất lượng sau giao ngoài phạm vi. Cây dưới phân biệt thành phần hiện có với đường dẫn dự kiến; các proof M2/M3a/M3b giữ theo ngày.
+[M3c](../../tasks/slice-3-checkout.md) đã có implementation đã nghiệm thu local ngày27/10/2026: dùng Catalog contract/listener9093 hiện có cho quote/hold giá-version và Commerce house layers cho preview/attempt/recovery/orders. Không thêm service/common library. M3d đã có Payment/VNPAY adapter, Commerce capture application và HELD → CONSUMED giảm held/on_hand nguyên tử trong implementation/tests local; nghiệm thu còn partial, chờ actual provider và proof cuối của main; không SHIPPED giả. Order đích AWAITING_PAYMENT → PAID terminal hoặc EXPIRED/CANCELLED; Feedback xác minh dòng đơn PAID. Refund tài chính vẫn trong Payment; claim chất lượng sau giao ngoài phạm vi. Cây dưới phân biệt thành phần hiện có với đường dẫn dự kiến; các proof M2/M3a/M3b giữ theo ngày.
 
 ## Catalog M3b — thành phần reservation
 
@@ -25,12 +25,13 @@ backend/
 │   ├── merchant-service/           # Đã có, tách riêng
 │   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô, public read và reservation M3b
 │   ├── commerce-service/           # Giỏ M3a; checkout/đơn M3c đã nghiệm thu local ngày27/10/2026, HTTP8084
-│   ├── payment-service/
+│   ├── payment-service/            # M3d implementation/tests local; HTTP8085, provider proof pending
 │   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
 ├── libraries/
 │   ├── identity-contract/          # Sinh Java/protobuf từ contract Identity
 │   ├── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
-│   └── catalog-contract/           # Sinh Java/protobuf cho Offers, Reservations, Checkout v1
+│   ├── catalog-contract/           # Offers, Reservations (gồm Consume), Checkout v1
+│   └── commerce-contract/          # CommercePayments v1, listener Commerce9094
 ├── contracts/
 │   ├── openapi/                    # Nguồn HTTP contract; JSON OpenAPI
 │   ├── proto/                      # Nguồn .proto khi có service cần giao tiếp
@@ -41,12 +42,13 @@ backend/
 ├── docs/
 │   ├── product/
 │   ├── architecture/
+│   ├── payment.md                 # Hành vi, cấu hình và giới hạn proof M3d
 │   └── decisions/
 ├── tasks/plan.md                   # Chỉ mục kế hoạch; tracker canonical: claude-mem
 └── .github/workflows/
 ```
 
-Reactor hiện có ba contract module identity-contract/merchant-contract/catalog-contract và bốn service identity-service/merchant-service/catalog-service/commerce-service. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Commerce cấu hình agora_commerce/schema commerce, fixture dùng database test riêng; chưa xác nhận tạo/migrate native. Các đường dẫn Payment/Feedback/infra trong cây là thiết kế, không mặc định đã tạo file hoặc database.
+Reactor hiện có bốn contract module identity-contract/merchant-contract/catalog-contract/commerce-contract và năm service identity-service/merchant-service/catalog-service/commerce-service/payment-service; Feedback là service thứ sáu dự kiến. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Commerce cấu hình agora_commerce/schema commerce, fixture dùng database test riêng; chưa xác nhận tạo/migrate native. Payment đã có module và migration V1/V2, mặc định database agora_payment/schema payment; demo M3d dùng năm database Docker biệt lập, không thay đổi native database. Các đường dẫn Feedback/infra trong cây là thiết kế, không mặc định đã tạo file hoặc database.
 
 ## 2. Một service theo DDD
 
@@ -154,6 +156,16 @@ Catalog thêm [CatalogOffersService](../../services/catalog-service/src/main/jav
 
 Catalog thêm domain Checkout, application CheckoutService/CheckoutStore, inbound CheckoutRpc; JdbcReservationStore hiện thực quote/replay/accepted hold với savepoint và permanent decision. CatalogGrpcServer đăng ký CatalogCheckout trên listener hiện có. [Proto](../../contracts/proto/agora/catalog/v1/catalog_checkout.proto) dùng catalog-contract; [V7](../../services/catalog-service/src/main/resources/db/migration/V7__checkout_decisions.sql) thêm decision/accepted_not_after.
 
-Commerce thêm domain Checkout (Preview/Snapshot/Attempt/Work/Order/Summary/Page), application CheckoutService/CheckoutStore/CheckoutCatalog, inbound CheckoutController, outbound JdbcCheckoutStore/GrpcCheckoutCatalog; tái sử dụng IdentityAccess/cart/catalogChannel. [V2](../../services/commerce-service/src/main/resources/db/migration/V2__commerce_checkout.sql) tạo previews/attempts/orders JSONB, không thêm service/dependency hoặc bảng order_lines. CheckoutService recover attempt mỗi10giây; order expiry tính khi đọc.
+Commerce thêm domain Checkout (Preview/Snapshot/Attempt/Work/Order/Summary/Page), application CheckoutService/CheckoutStore/CheckoutCatalog, inbound CheckoutController, outbound JdbcCheckoutStore/GrpcCheckoutCatalog; tái sử dụng IdentityAccess/cart/catalogChannel. [V2](../../services/commerce-service/src/main/resources/db/migration/V2__commerce_checkout.sql) tạo previews/attempts/orders JSONB, không thêm service/dependency hoặc bảng order_lines. Tại revision M3c ngày27/10, CheckoutService recover attempt mỗi10giây và order expiry tính khi đọc; M3d thay bằng stored order state theo settlement authority như ghi bên dưới.
 
 [OpenAPI](../../contracts/openapi/commerce-checkout.v1.openapi.json), [plan](../../tasks/slice-3-checkout.md), [demo/evidence](../demo-checkout.md). CheckoutStoreTests và CheckoutAdmissionTests có final evidence: Catalog75focused gồm13CheckoutStore/PauliCLEAR, Commerce40module/BanachCLEAR; root303PASS trên39current classes, live/cleanup đã được main xác minh. Exact gates ở demo checkout.
+
+## M3d — Payment, capture application và consumption đã có local
+
+[Payment](../payment.md) ghi trạng thái partial ngày28/10/2026 và các provider gate còn pending; [plan](../../tasks/slice-3-payment.md) là chỉ mục thiết kế, không thay proof nghiệm thu. Theo main, lượt tối projection83PASS, wake86PASS và read-only reviewCLEAR là các mốc trước root. Root verify local do main xác minh ngày **28/10/2026 lúc19:53:44+07:00: BUILD SUCCESS, 443 PASS =13 Identity+59 Merchant+206 Catalog+77 Commerce+88 Payment, 0failure/error/skip**. [root log](../../target/payment-proof-20261028-evening/root-verify.log), [manifest238sourcefiles](../../target/payment-proof-20261028-evening/source-manifest.json), [năm verified JAR](../../target/payment-proof-20261028-evening/verified-jars.json). Main đang boot năm JAR trên fixture mới; actual provider/live và nghiệm thu toàn M3d vẫn pending.
+
+Payment HTTP8085 theo house layers: domain Payment/PaymentFailure; application PaymentService/PaymentNotifications/PaymentReconciliation/ProviderReconciliation và ports IdentityAccess/PaymentOrders/PaymentStore/PaymentProvider/ProviderJobs. Inbound PaymentController/VnpayController; outbound GrpcIdentityAccess/GrpcPaymentOrders, JdbcPaymentStore/JdbcProviderJobs và VnpayCodec/VnpayApiCodec/VnpayApiClient/VnpayProvider. [V1](../../services/payment-service/src/main/resources/db/migration/V1__payments.sql) lưu attempts/captures/ledger/capture jobs/observations/refunds/provider queries; [V2](../../services/payment-service/src/main/resources/db/migration/V2__provider_query_wakeups.sql) thêm query_wakeups bền vững. Wakeup không bị mất khi query đang leased; claim/complete dùng lease/revision, HTTP/gRPC ngoài DB transaction.
+
+Commerce thêm CaptureApplication, PaymentApplicationService/PaymentStore/ReservationSettlement, PaymentRpc, JdbcPaymentStore/GrpcReservationSettlement và CommerceGrpcServer9094; [V3](../../services/commerce-service/src/main/resources/db/migration/V3__order_payments.sql) lưu state/winner/receipts/jobs. [CommercePayments proto](../../contracts/proto/agora/commerce/v1/commerce_payments.proto) sinh Java qua commerce-contract; listener bật bằng COMMERCE_GRPC_ENABLED, mặc định false. Public order reads dùng stored state; PAID chỉ sau xác nhận Catalog CONSUMED đúng capture. Catalog [V8](../../services/catalog-service/src/main/resources/db/migration/V8__reservation_consumption.sql) thêm consumed capture/time, terminal constraints và auditCONSUME trong reservation hiện có; không thêm service/common library hoặc transaction xuyên database.
+
+PaymentApiTests và VnpayCodecTests/VnpayApiCodecTests/VnpayApiClientTests kiểm tra API, codec, persistence và provider fixtures; CommercePaymentTests/PaymentRecoveryTests/PaymentRpcTests/PaymentMigrationTests và ReservationConsumptionTests kiểm tra settlement/recovery. Fixture không chứng minh provider sandbox thật chấp nhận thanh toán. Refund chỉ tài chính: reserve/ledger không tự suy thành SUCCEEDED, lost reply cần reconciliation và không gửi lại refund chưa rõ; không tăng lại inventory hoặc đảo terminalPAID.

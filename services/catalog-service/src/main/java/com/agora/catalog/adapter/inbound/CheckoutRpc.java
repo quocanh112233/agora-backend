@@ -43,8 +43,8 @@ public class CheckoutRpc extends CatalogCheckoutGrpc.CatalogCheckoutImplBase {
             if(result.reservation()!=null){
                 var r=result.reservation();
                 if(!r.buyerId().equals(request.buyerId())||!r.checkoutId().equals(request.checkoutId())||!r.shopId().equals(request.shopId())||r.items().size()!=request.lines().size()
-                    ||!Set.of("HELD","RELEASED").contains(r.state())||!r.expiresAt().equals(r.createdAt().plusSeconds(900))
-                    ||r.state().equals("HELD")&&r.releaseReason()!=null||r.state().equals("RELEASED")&&!Set.of("CANCELLED","EXPIRED").contains(String.valueOf(r.releaseReason())))throw malformed();
+                    ||!Set.of("HELD","RELEASED","CONSUMED").contains(r.state())||!r.expiresAt().equals(r.createdAt().plusSeconds(900))
+                    ||!r.state().equals("RELEASED")&&r.releaseReason()!=null||r.state().equals("RELEASED")&&!Set.of("CANCELLED","EXPIRED","UNAVAILABLE").contains(String.valueOf(r.releaseReason())))throw malformed();
                 var seen=new HashSet<UUID>();var lots=new HashSet<UUID>();
                 for(var item:r.items()){
                     if(!seen.add(item.skuId())||request.lines().stream().noneMatch(l->l.productId().equals(item.productId())&&l.skuId().equals(item.skuId())&&l.quantity()==item.quantity())||item.allocations().isEmpty())throw malformed();

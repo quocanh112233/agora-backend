@@ -27,7 +27,7 @@ public class JdbcCheckoutStore implements CheckoutStore {
     @Override @Transactional(timeout=10)
     public Preview savePreview(UUID actor,UUID key,String hash,Snapshot snapshot){
         actorLock(actor);var existing=existingPreview(actor,key,hash);if(existing.isPresent())return existing.get();
-        var p=snapshot.preview();long version=lockCart(actor);if(version!=p.cartVersion())throw Checkout.conflict();
+        var p=snapshot.preview();Checkout.paymentAmount(p.totalVnd());long version=lockCart(actor);if(version!=p.cartVersion())throw Checkout.conflict();
         jdbc.update("INSERT INTO commerce.checkout_previews(id,actor_id,request_key,request_hash,snapshot,expires_at) VALUES(?,?,?,?,?::jsonb,?)",p.id(),actor,key,hash,json.writeValueAsString(snapshot),Timestamp.from(p.expiresAt()));return p;
     }
     private long lockCart(UUID actor){
@@ -42,7 +42,7 @@ public class JdbcCheckoutStore implements CheckoutStore {
     public Attempt claim(UUID actor,UUID key,UUID preview){
         actorLock(actor);var existing=existingAttempt(actor,key,preview);if(existing.isPresent())return existing.get();
         var previews=jdbc.query("SELECT snapshot,expires_at>clock_timestamp() AS valid FROM commerce.checkout_previews WHERE actor_id=? AND id=? FOR UPDATE",(r,n)->{if(!r.getBoolean("valid"))throw Checkout.conflict();return json.readValue(r.getString("snapshot"),Snapshot.class);},actor,preview);
-        if(previews.isEmpty())throw Checkout.missing();var snapshot=previews.getFirst();long version=lockCart(actor);
+        if(previews.isEmpty())throw Checkout.missing();var snapshot=previews.getFirst();Checkout.paymentAmount(snapshot.preview().totalVnd());long version=lockCart(actor);
         if(jdbc.queryForObject("SELECT count(*) FROM commerce.checkout_attempts WHERE preview_id=?",Integer.class,preview)!=0||version!=snapshot.preview().cartVersion())throw Checkout.conflict();
         UUID checkout=UUID.randomUUID();jdbc.update("INSERT INTO commerce.checkout_attempts(actor_id,request_key,preview_id,checkout_id) VALUES(?,?,?,?)",actor,key,preview,checkout);
         return new Attempt(key,checkout,"PROCESSING",null,null);
@@ -68,14 +68,14 @@ public class JdbcCheckoutStore implements CheckoutStore {
     @Override @Transactional(readOnly=true)
     public List<Map.Entry<UUID,UUID>> pending(){return jdbc.query("SELECT actor_id,request_key FROM commerce.checkout_attempts WHERE state='PROCESSING' AND lease_until<=clock_timestamp() ORDER BY lease_until,checkout_id LIMIT 20",(r,n)->Map.entry(r.getObject(1,UUID.class),r.getObject(2,UUID.class)));}
     private Order readOrder(ResultSet r)throws SQLException{
-        var p=json.readValue(r.getString("snapshot"),Preview.class);return new Order(r.getObject("id",UUID.class),r.getBoolean("expired")?"EXPIRED":"AWAITING_PAYMENT",p.shopId(),p.shopName(),p.currency(),p.totalVnd(),r.getTimestamp("created_at").toInstant(),r.getTimestamp("expires_at").toInstant(),r.getBoolean("cart_cleared"),p.items());
+        var p=json.readValue(r.getString("snapshot"),Preview.class);return new Order(r.getObject("id",UUID.class),r.getString("state"),p.shopId(),p.shopName(),p.currency(),p.totalVnd(),r.getTimestamp("created_at").toInstant(),r.getTimestamp("expires_at").toInstant(),r.getBoolean("cart_cleared"),p.items());
     }
     @Override @Transactional(readOnly=true)
-    public Order order(UUID actor,UUID id){return jdbc.query("SELECT *,expires_at<=clock_timestamp() AS expired FROM commerce.orders WHERE actor_id=? AND id=?",(r,n)->readOrder(r),actor,id).stream().findFirst().orElseThrow(Checkout::missing);}
+    public Order order(UUID actor,UUID id){return jdbc.query("SELECT * FROM commerce.orders WHERE actor_id=? AND id=?",(r,n)->readOrder(r),actor,id).stream().findFirst().orElseThrow(Checkout::missing);}
     @Override @Transactional(readOnly=true)
     public Page orders(UUID actor,String cursor){
         List<Order> orders;
-        if(cursor==null)orders=jdbc.query("SELECT *,expires_at<=clock_timestamp() AS expired FROM commerce.orders WHERE actor_id=? ORDER BY created_at DESC,id DESC LIMIT 21",(r,n)->readOrder(r),actor);
+        if(cursor==null)orders=jdbc.query("SELECT * FROM commerce.orders WHERE actor_id=? ORDER BY created_at DESC,id DESC LIMIT 21",(r,n)->readOrder(r),actor);
         else{
             Order anchor;
             try{
@@ -84,7 +84,7 @@ public class JdbcCheckoutStore implements CheckoutStore {
                 if(parts.length!=2||!parts[0].equals(actor.toString())||!UUID.fromString(parts[1]).toString().equals(parts[1]))throw new IllegalArgumentException();
                 anchor=order(actor,UUID.fromString(parts[1]));
             }catch(IllegalArgumentException|CartFailure e){throw new CartFailure(422,"VALIDATION_ERROR","Provide a valid cursor for this account.");}
-            orders=jdbc.query("SELECT *,expires_at<=clock_timestamp() AS expired FROM commerce.orders WHERE actor_id=? AND (created_at,id)<(?,?) ORDER BY created_at DESC,id DESC LIMIT 21",(r,n)->readOrder(r),actor,Timestamp.from(anchor.createdAt()),anchor.id());
+            orders=jdbc.query("SELECT * FROM commerce.orders WHERE actor_id=? AND (created_at,id)<(?,?) ORDER BY created_at DESC,id DESC LIMIT 21",(r,n)->readOrder(r),actor,Timestamp.from(anchor.createdAt()),anchor.id());
         }
         String next=orders.size()>20?Base64.getUrlEncoder().withoutPadding().encodeToString((actor+":"+orders.get(19).id()).getBytes(StandardCharsets.UTF_8)):null;
         return new Page(orders.stream().limit(20).map(Summary::new).toList(),next);

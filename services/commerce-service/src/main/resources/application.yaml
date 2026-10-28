@@ -24,6 +24,9 @@ server:
   address: ${COMMERCE_SERVER_ADDRESS:127.0.0.1}
   port: ${COMMERCE_SERVER_PORT:8084}
 agora:
+  grpc:
+    enabled: ${COMMERCE_GRPC_ENABLED:false}
+    port: ${COMMERCE_GRPC_PORT:9094}
   internal-token: ${INTERSERVICE_TOKEN:}
 management:
   endpoints:

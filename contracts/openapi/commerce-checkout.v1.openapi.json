@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agora Commerce Checkout API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "One shop per order. No shipping, delivery address, pickup or shipping fee. Server preview expires in 5 minutes; accepted prices/versions validated atomically with Catalog hold. Durable attempts recover unknown outcomes; only held stock permits an AWAITING_PAYMENT order. No payment API in M3c."
   },
   "servers": [
@@ -862,6 +862,8 @@
             "type": "string",
             "enum": [
               "AWAITING_PAYMENT",
+              "PAYMENT_PROCESSING",
+              "PAID",
               "EXPIRED"
             ]
           },
@@ -924,6 +926,8 @@
             "type": "string",
             "enum": [
               "AWAITING_PAYMENT",
+              "PAYMENT_PROCESSING",
+              "PAID",
               "EXPIRED"
             ]
           },

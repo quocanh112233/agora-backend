@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: payment-service
+  config:
+    import: optional:file:./.env[.properties]
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${PAYMENT_DB_NAME:agora_payment}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 3000
+  flyway:
+    default-schema: payment
+    schemas: payment
+    create-schemas: true
+    locations: classpath:db/migration
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+      fail-on-trailing-tokens: true
+server:
+  address: ${PAYMENT_SERVER_ADDRESS:127.0.0.1}
+  port: ${PAYMENT_SERVER_PORT:8085}
+agora:
+  internal-token: ${INTERSERVICE_TOKEN:}
+  vnpay:
+    enabled: ${VNPAY_ENABLED:false}
+    tmn-code: ${VNPAY_TMN_CODE:}
+    hash-secret: ${VNPAY_HASH_SECRET:}
+    return-url: ${VNPAY_RETURN_URL:http://127.0.0.1:3000/api/v1/payments/vnpay/return}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

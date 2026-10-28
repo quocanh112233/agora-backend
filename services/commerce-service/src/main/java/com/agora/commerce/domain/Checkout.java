@@ -21,6 +21,7 @@ public final class Checkout {
     public record Page(List<Summary> items,String nextCursor) {}
     public static Instant instant(long micros){return Instant.ofEpochSecond(Math.floorDiv(micros,1000000),Math.floorMod(micros,1000000)*1000);}
     public static long micros(Instant time){return Math.addExact(Math.multiplyExact(time.getEpochSecond(),1000000),time.getNano()/1000);}
+    public static void paymentAmount(long total){if(total<5000||total>9999999999L)throw new CartFailure(422,"PAYMENT_AMOUNT_UNSUPPORTED","Payment amount is outside the supported range.");}
     public static CartFailure unavailable(){return new CartFailure(503,"CATALOG_UNAVAILABLE","Checkout information is unavailable.");}
     public static CartFailure missing(){return new CartFailure(404,"NOT_FOUND","Resource was not found.");}
     public static CartFailure conflict(){return new CartFailure(409,"CHECKOUT_CONFLICT","Cart or preview has changed. Preview the cart again.");}

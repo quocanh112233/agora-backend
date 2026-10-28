@@ -34,6 +34,7 @@ public class ReservationService {
     }
     public Reservation get(UUID buyer,UUID checkout){validate(buyer,checkout);return access(()->store.get(buyer,checkout));}
     public Reservation release(UUID buyer,UUID checkout){validate(buyer,checkout);return access(()->store.release(buyer,checkout));}
+    public Reservation consume(UUID buyer,UUID checkout,UUID capture){validate(buyer,checkout);if(capture==null)throw new CatalogFailure(422,"INVALID_RESERVATION","Capture is required.");return access(()->store.consume(buyer,checkout,capture));}
     @Scheduled(fixedDelay=30000,initialDelay=30000)
     public int expire(){return access(store::expire);}
     private static void validate(UUID buyer,UUID checkout){if(buyer==null||checkout==null)throw new CatalogFailure(422,"INVALID_RESERVATION","Buyer and checkout are required.");}

@@ -28,7 +28,7 @@ class CheckoutAdmissionTests {
     @DynamicPropertySource static void database(DynamicPropertyRegistry p){p.add("spring.datasource.url",POSTGRES::getJdbcUrl);p.add("spring.datasource.username",POSTGRES::getUsername);p.add("spring.datasource.password",POSTGRES::getPassword);p.add("agora.internal-token",()->CartRpcFixture.TOKEN);}
     @Autowired CartRpcFixture rpc; @Autowired JdbcTemplate jdbc; @Autowired JsonMapper json; @LocalServerPort int port;
     @Autowired CheckoutCatalog checkoutCatalog;@Autowired CheckoutStore checkoutStore;@Autowired CheckoutService checkoutService;@Autowired javax.sql.DataSource dataSource;
-    @BeforeEach void resetCheckout(){jdbc.execute("TRUNCATE commerce.checkout_attempts,commerce.orders,commerce.checkout_previews,commerce.cart_requests,commerce.cart_items,commerce.carts");rpc.resetCheckout();rpc.offers.clear();rpc.identityFailure.set(null);}
+    @BeforeEach void resetCheckout(){jdbc.execute("TRUNCATE commerce.capture_applications,commerce.checkout_attempts,commerce.orders,commerce.checkout_previews,commerce.cart_requests,commerce.cart_items,commerce.carts");rpc.resetCheckout();rpc.offers.clear();rpc.identityFailure.set(null);}
     @Test void authenticatedBuyerCanPreviewSelectedCartAtServerPrice()throws Exception {
         String session=rpc.account();UUID actor=rpc.sessions.get(session);var offer=rpc.offer();
         jdbc.update("INSERT INTO commerce.carts(account_id,version) VALUES(?,1)",actor);
@@ -171,18 +171,18 @@ class CheckoutAdmissionTests {
         var held=rpc.decisions.values().iterator().next().getReservation();long now=CartRpcFixture.micros();rpc.holdOverride.set(com.agora.contracts.catalog.v1.CheckoutHoldResult.newBuilder().setReservation(held.toBuilder().setCreatedAtEpochMicros(now-901000000).setExpiresAtEpochMicros(now-1000000)).build());
         rpc.afterHoldFailure.set(null);jdbc.update("UPDATE commerce.checkout_attempts SET lease_until=clock_timestamp()-interval '1 second' WHERE actor_id=?",s.actor());
         var result=call(s.session(),"POST","/checkouts",confirmBody(s),key,true);assertThat(result.statusCode()).isEqualTo(200);assertThat(json.readTree(result.body()).path("state").asString()).isEqualTo("ORDER_CREATED");
-        var order=call(s.session(),"GET","/orders/"+json.readTree(result.body()).path("orderId").asString(),null,null,false);assertThat(json.readTree(order.body()).path("state").asString()).isEqualTo("EXPIRED");
+        var order=call(s.session(),"GET","/orders/"+json.readTree(result.body()).path("orderId").asString(),null,null,false);assertThat(json.readTree(order.body()).path("state").asString()).isEqualTo("AWAITING_PAYMENT");
     }
-    @Test void ordersExpireOnReadAndListUsesPrivateStableCursor()throws Exception {
+    @Test void localDeadlineDoesNotExpireOrderAndListUsesPrivateStableCursor()throws Exception {
         var s=preview();var result=call(s.session(),"POST","/checkouts",confirmBody(s),UUID.randomUUID().toString(),true);UUID id=UUID.fromString(json.readTree(result.body()).path("orderId").asString());
         jdbc.update("UPDATE commerce.orders SET expires_at=clock_timestamp()-interval '1 second' WHERE id=?",id);
-        assertThat(json.readTree(call(s.session(),"GET","/orders/"+id,null,null,false).body()).path("state").asString()).isEqualTo("EXPIRED");
+        assertThat(json.readTree(call(s.session(),"GET","/orders/"+id,null,null,false).body()).path("state").asString()).isEqualTo("AWAITING_PAYMENT");
         // Duplicate immutable snapshots under distinct attempts to exercise the 20-row page boundary.
         for(int n=0;n<21;n++){
             UUID preview=UUID.randomUUID(),checkout=UUID.randomUUID(),order=UUID.randomUUID(),key=UUID.randomUUID();
             jdbc.update("INSERT INTO commerce.checkout_previews SELECT ?,actor_id,?,request_hash,snapshot,expires_at FROM commerce.checkout_previews WHERE id=?",preview,key,UUID.fromString(s.preview()));
             jdbc.update("INSERT INTO commerce.checkout_attempts(actor_id,request_key,preview_id,checkout_id) VALUES(?,?,?,?)",s.actor(),key,preview,checkout);
-            jdbc.update("INSERT INTO commerce.orders SELECT ?,actor_id,?,snapshot,created_at,expires_at,cart_cleared FROM commerce.orders WHERE id=?",order,checkout,id);
+            jdbc.update("INSERT INTO commerce.orders(id,actor_id,checkout_id,snapshot,created_at,expires_at,cart_cleared) SELECT ?,actor_id,?,snapshot,created_at,expires_at,cart_cleared FROM commerce.orders WHERE id=?",order,checkout,id);
         }
         var page=json.readTree(call(s.session(),"GET","/orders",null,null,false).body());assertThat(page.path("items").size()).isEqualTo(20);String cursor=page.path("nextCursor").asString();
         assertThat(page.path("items").get(0).propertyNames()).containsExactlyInAnyOrder("id","state","shopId","shopName","currency","totalVnd","createdAt","expiresAt","itemCount");
@@ -199,4 +199,37 @@ class CheckoutAdmissionTests {
         rpc.quoteOverride.set(com.agora.contracts.catalog.v1.QuoteCheckoutResponse.newBuilder().setShopId(offer.getShopId()).setShopName(offer.getShopName()).setExpiresAtEpochMicros(CartRpcFixture.micros()+300000000).addOffers(com.agora.contracts.catalog.v1.CheckoutOffer.newBuilder().setProductId(offer.getProductId()).setSkuId(offer.getSkuId()).setQuantity(2).setProductName(offer.getProductName()).setSkuLabel(offer.getSkuLabel()).setNetWeightGrams(offer.getNetWeightGrams()).setUnitPriceVnd(offer.getPriceVnd()).setProductVersion(9007199254740992L)).build());
         assertThatThrownBy(()->checkoutCatalog.quote(UUID.randomUUID(),CartService.cartId(s.actor()),1,UUID.fromString(offer.getShopId()),List.of(new com.agora.commerce.domain.Cart.Item(UUID.fromString(offer.getProductId()),UUID.fromString(offer.getSkuId()),2)))).isInstanceOf(com.agora.commerce.domain.CartFailure.class);
     }
+    @Test void checkoutBoundaryRejectsConsumptionMetadataOnHeldAndAcceptsUnavailableRelease()throws Exception {
+        var s=preview();UUID key=UUID.randomUUID();checkoutStore.claim(s.actor(),key,UUID.fromString(s.preview()));var work=checkoutStore.acquire(s.actor(),key).orElseThrow();checkoutCatalog.hold(work);
+        var held=rpc.decisions.values().iterator().next().getReservation();
+        rpc.holdOverride.set(com.agora.contracts.catalog.v1.CheckoutHoldResult.newBuilder().setReservation(held.toBuilder().setConsumedCaptureId(UUID.randomUUID().toString()).setConsumedAtEpochMicros(held.getCreatedAtEpochMicros())).build());
+        assertThatThrownBy(()->checkoutCatalog.hold(work)).isInstanceOf(com.agora.commerce.domain.CartFailure.class);
+        rpc.holdOverride.set(com.agora.contracts.catalog.v1.CheckoutHoldResult.newBuilder().setReservation(held.toBuilder().setState(com.agora.contracts.catalog.v1.ReservationState.RELEASED).setReleaseReason(com.agora.contracts.catalog.v1.ReservationReleaseReason.UNAVAILABLE)).build());
+        assertThat(checkoutCatalog.hold(work).failure()).isEqualTo("RESERVATION_RELEASED");
+    }
+
+    @Test void newPreviewRangeIsCheckedBeforeWriteButExistingPreviewReplays()throws Exception {
+        var s=preview();var offer=rpc.offers.values().iterator().next();UUID sku=UUID.fromString(offer.getSkuId());
+        String body="{\"cartId\":\""+CartService.cartId(s.actor())+"\",\"cartVersion\":1,\"shopId\":\""+offer.getShopId()+"\",\"skuIds\":[\""+offer.getSkuId()+"\"]}";
+        rpc.offers.put(sku,offer.toBuilder().setPriceVnd(2499).build());String key=UUID.randomUUID().toString();
+        assertThat(call(s.session(),"POST","/checkout-previews",body,key,true).statusCode()).isEqualTo(422);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM commerce.checkout_previews WHERE actor_id=?",Integer.class,s.actor())).isEqualTo(1);
+        rpc.offers.put(sku,offer.toBuilder().setPriceVnd(2500).build());assertThat(call(s.session(),"POST","/checkout-previews",body,key,true).statusCode()).isEqualTo(200);
+        rpc.offers.put(sku,offer.toBuilder().setPriceVnd(1).build());assertThat(call(s.session(),"POST","/checkout-previews",body,key,true).statusCode()).isEqualTo(200);
+        jdbc.update("UPDATE commerce.cart_items SET quantity=99 WHERE account_id=?",s.actor());rpc.offers.put(sku,offer.toBuilder().setPriceVnd(1000000000).build());
+        assertThat(call(s.session(),"POST","/checkout-previews",body,UUID.randomUUID().toString(),true).statusCode()).isEqualTo(422);
+    }
+    @Test void unclaimedLegacyAmountRejectedButExistingAttemptStillReconciles()throws Exception {
+        var s=preview();UUID preview=UUID.fromString(s.preview()),key=UUID.randomUUID();
+        jdbc.update("UPDATE commerce.checkout_previews SET snapshot=jsonb_set(snapshot,'{preview,totalVnd}','4999') WHERE id=?",preview);
+        assertThat(call(s.session(),"POST","/checkouts",confirmBody(s),key.toString(),true).statusCode()).isEqualTo(422);assertThat(rpc.holdCalls.get()).isZero();
+        jdbc.update("UPDATE commerce.checkout_previews SET snapshot=jsonb_set(snapshot,'{preview,totalVnd}','10000000000') WHERE id=?",preview);
+        assertThat(call(s.session(),"POST","/checkouts",confirmBody(s),key.toString(),true).statusCode()).isEqualTo(422);assertThat(rpc.holdCalls.get()).isZero();
+        jdbc.update("UPDATE commerce.checkout_previews SET snapshot=jsonb_set(snapshot,'{preview,totalVnd}','70000') WHERE id=?",preview);
+        rpc.afterHoldFailure.set(io.grpc.Status.UNAVAILABLE);assertThat(call(s.session(),"POST","/checkouts",confirmBody(s),key.toString(),true).statusCode()).isEqualTo(202);
+        jdbc.update("UPDATE commerce.checkout_previews SET snapshot=jsonb_set(snapshot,'{preview,totalVnd}','4999') WHERE id=?",preview);
+        rpc.afterHoldFailure.set(null);jdbc.update("UPDATE commerce.checkout_attempts SET lease_until=clock_timestamp()-interval '1 second' WHERE actor_id=?",s.actor());
+        assertThat(call(s.session(),"POST","/checkouts",confirmBody(s),key.toString(),true).statusCode()).isEqualTo(200);
+    }
+
 }

@@ -7,5 +7,6 @@ public interface ReservationStore {
     Reservation create(Request request);
     Reservation get(UUID buyer,UUID checkout);
     Reservation release(UUID buyer,UUID checkout);
+    Reservation consume(UUID buyer,UUID checkout,UUID capture);
     int expire();
 }

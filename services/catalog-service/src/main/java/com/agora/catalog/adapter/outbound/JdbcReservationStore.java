@@ -42,12 +42,12 @@ public class JdbcReservationStore implements ReservationStore,CheckoutStore {
     private void lockIdentity(UUID checkout){
         jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",r->{},"reservation:"+checkout);
     }
-    private record Header(UUID checkout,UUID buyer,UUID shop,String hash,String state,Instant created,Instant expires,String reason,Timestamp notAfter){}
+    private record Header(UUID checkout,UUID buyer,UUID shop,String hash,String state,Instant created,Instant expires,String reason,Timestamp notAfter,UUID capture,Timestamp consumedAt){}
     private Optional<Header> header(UUID checkout){
         lockIdentity(checkout);
         return jdbc.query("SELECT * FROM catalog.reservations WHERE checkout_id=? FOR UPDATE",(r,i)->new Header(
                 r.getObject("checkout_id",UUID.class),r.getObject("buyer_id",UUID.class),r.getObject("shop_id",UUID.class),r.getString("request_hash"),
-                r.getString("state"),r.getTimestamp("created_at").toInstant(),r.getTimestamp("expires_at").toInstant(),r.getString("release_reason"),r.getTimestamp("accepted_not_after")),checkout).stream().findFirst();
+                r.getString("state"),r.getTimestamp("created_at").toInstant(),r.getTimestamp("expires_at").toInstant(),r.getString("release_reason"),r.getTimestamp("accepted_not_after"),r.getObject("consumed_capture_id",UUID.class),r.getTimestamp("consumed_at")),checkout).stream().findFirst();
     }
     private Header owned(UUID buyer,UUID checkout){var h=header(checkout).orElseThrow(JdbcReservationStore::missing);if(!h.buyer().equals(buyer))throw missing();return h;}
     private Optional<Reservation> replayLocked(Request request){
@@ -187,17 +187,50 @@ public class JdbcReservationStore implements ReservationStore,CheckoutStore {
             return new Item(r.getObject("product_id",UUID.class),sku,r.getInt("quantity"),allocations);
         },checkout);
     }
-    private Reservation current(Header h,boolean release){
-        var items=items(h.checkout());String state=h.state(),reason=h.reason();
-        if(state.equals("HELD")&&(release||!now(h).isBefore(h.expires()))){
-            var allocations=items.stream().flatMap(item->item.allocations().stream()).sorted(Comparator.comparing(a->a.lotId().toString())).toList();
-            for(var allocation:allocations)jdbc.query("SELECT id FROM catalog.inventory_lots WHERE id=? FOR UPDATE",(r,i)->r.getObject(1,UUID.class),allocation.lotId());
-            Instant now=now(h);reason=now.isBefore(h.expires())?"CANCELLED":"EXPIRED";state="RELEASED";
-            for(var item:items)for(var allocation:item.allocations())adjust(h.checkout(),item.skuId(),allocation,-allocation.quantity(),reason.equals("EXPIRED")?"EXPIRE":"RELEASE",now);
-            jdbc.update("UPDATE catalog.reservations SET state='RELEASED',released_at=?,release_reason=? WHERE checkout_id=?",Timestamp.from(now),reason,h.checkout());
-        }
-        return new Reservation(h.checkout(),h.buyer(),h.shop(),state,h.created(),h.expires(),reason,items);
+    private List<Lot> lockLots(List<Item> items){
+        return items.stream().flatMap(item->item.allocations().stream()).sorted(Comparator.comparing(a->a.lotId().toString())).map(a->jdbc.queryForObject(
+            "SELECT id,sku_id,expires_on,state,on_hand-held-allocated AS available FROM catalog.inventory_lots WHERE id=? FOR UPDATE",
+            (r,i)->new Lot(r.getObject("id",UUID.class),r.getObject("sku_id",UUID.class),r.getDate("expires_on").toLocalDate(),r.getString("state"),r.getLong("available")),a.lotId())).toList();
     }
+    private Reservation released(Header h,List<Item> items,String reason,Instant now){
+        for(var item:items)for(var allocation:item.allocations())adjust(h.checkout(),item.skuId(),allocation,-allocation.quantity(),reason.equals("EXPIRED")?"EXPIRE":"RELEASE",now);
+        jdbc.update("UPDATE catalog.reservations SET state='RELEASED',released_at=?,release_reason=? WHERE checkout_id=?",Timestamp.from(now),reason,h.checkout());
+        return new Reservation(h.checkout(),h.buyer(),h.shop(),"RELEASED",h.created(),h.expires(),reason,items);
+    }
+    private Reservation current(Header h,boolean release){
+        var items=items(h.checkout());
+        if(h.state().equals("HELD")&&(release||!now(h).isBefore(h.expires()))){
+            lockLots(items);Instant now=now(h);
+            return released(h,items,now.isBefore(h.expires())?"CANCELLED":"EXPIRED",now);
+        }
+        return new Reservation(h.checkout(),h.buyer(),h.shop(),h.state(),h.created(),h.expires(),h.reason(),items,h.capture(),h.consumedAt()==null?null:h.consumedAt().toInstant());
+    }
+    @Override public Reservation consume(UUID buyer,UUID checkout,UUID capture){return tx(()->{
+        // Serialize reuse of one financial capture before taking a checkout's existing lock.
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",r->{},"capture:"+capture);
+        var h=owned(buyer,checkout);
+        if(h.notAfter()==null)throw new CatalogFailure(409,"RESERVATION_NOT_PAYABLE","Only accepted checkout reservations can be consumed.");
+        if(h.state().equals("CONSUMED")){
+            if(!capture.equals(h.capture()))throw new CatalogFailure(422,"CAPTURE_MISMATCH","Reservation was consumed by another capture.");
+            return current(h,false);
+        }
+        if(h.state().equals("RELEASED"))return current(h,false);
+        if(!jdbc.query("SELECT checkout_id FROM catalog.reservations WHERE consumed_capture_id=?",(r,i)->r.getObject(1,UUID.class),capture).isEmpty())
+            throw new CatalogFailure(422,"CAPTURE_ALREADY_USED","Capture was used for another reservation.");
+        var items=items(checkout);var lots=lockLots(items);Instant now=databaseInstant();
+        if(!now.isBefore(h.expires()))return released(h,items,"EXPIRED",now);
+        var today=LocalDate.ofInstant(now,VIETNAM);
+        if(lots.stream().anyMatch(l->!l.state().equals("ACTIVE")||!l.expires().isAfter(today)))return released(h,items,"UNAVAILABLE",now);
+        for(var item:items)for(var a:item.allocations()){
+            int changed=jdbc.update("UPDATE catalog.inventory_lots SET held=held-?,on_hand=on_hand-?,version=version+1,updated_at=? WHERE id=? AND sku_id=? AND held>=? AND on_hand>=? AND version<9007199254740991",
+                a.quantity(),a.quantity(),Timestamp.from(now),a.lotId(),item.skuId(),a.quantity(),a.quantity());
+            if(changed!=1)throw new CatalogFailure(409,"RESERVATION_STOCK_CONFLICT","Lot counters cannot be consumed.");
+            jdbc.update("INSERT INTO catalog.reservation_audit(id,checkout_id,sku_id,lot_id,action,quantity,lot_version,created_at) SELECT ?,?,?,?,'CONSUME',?,version,? FROM catalog.inventory_lots WHERE id=?",
+                UUID.randomUUID(),checkout,item.skuId(),a.lotId(),a.quantity(),Timestamp.from(now),a.lotId());
+        }
+        jdbc.update("UPDATE catalog.reservations SET state='CONSUMED',consumed_capture_id=?,consumed_at=? WHERE checkout_id=?",capture,Timestamp.from(now),checkout);
+        return new Reservation(checkout,buyer,h.shop(),"CONSUMED",h.created(),h.expires(),null,items,capture,now);
+    });}
     private void adjust(UUID checkout,UUID sku,Allocation allocation,int delta,String action,Instant now){
         int changed=jdbc.update("UPDATE catalog.inventory_lots SET held=held+?,version=version+1,updated_at=? WHERE id=? AND held+? >= 0 AND held+?+allocated <= on_hand AND version<9007199254740991",
                 delta,Timestamp.from(now),allocation.lotId(),delta,delta);

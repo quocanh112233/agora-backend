@@ -9,6 +9,12 @@ service CatalogReservations {
   rpc Hold(HoldReservationRequest) returns (ReservationResponse);
   rpc Get(ReservationReference) returns (ReservationResponse);
   rpc Release(ReservationReference) returns (ReservationResponse);
+  rpc Consume(ConsumeReservationRequest) returns (ReservationResponse);
+}
+message ConsumeReservationRequest {
+  string buyer_id = 1;
+  string checkout_id = 2;
+  string capture_id = 3;
 }
 message ReservationLine {
   string product_id = 1;
@@ -39,11 +45,13 @@ enum ReservationState {
   RESERVATION_STATE_UNSPECIFIED = 0;
   HELD = 1;
   RELEASED = 2;
+  CONSUMED = 3;
 }
 enum ReservationReleaseReason {
   RESERVATION_RELEASE_REASON_UNSPECIFIED = 0;
   CANCELLED = 1;
   EXPIRED = 2;
+  UNAVAILABLE = 3;
 }
 message ReservationResponse {
   string checkout_id = 1;
@@ -54,4 +62,6 @@ message ReservationResponse {
   int64 expires_at_epoch_micros = 6;
   ReservationReleaseReason release_reason = 7;
   repeated ReservedItem items = 8;
+  string consumed_capture_id = 9;
+  int64 consumed_at_epoch_micros = 10;
 }

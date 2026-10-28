@@ -105,4 +105,13 @@ class ReservationGrpcTests {
     @Test void listenerRejectsOversizedRequests(){
         assertThatThrownBy(()->client().hold(request().toBuilder().setBuyerId("x".repeat(5000)).build())).isInstanceOfSatisfying(StatusRuntimeException.class,e->assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.RESOURCE_EXHAUSTED));verifyNoInteractions(service);
     }
+    @Test void consumeMapsBoundMetadataAndRejectsInconsistentTerminalProjection(){
+        UUID capture=UUID.randomUUID();var held=view("HELD",null);var consumed=new Reservation(checkout,buyer,shop,"CONSUMED",held.createdAt(),held.expiresAt(),null,held.items(),capture,held.createdAt().plusSeconds(1));
+        var request=ConsumeReservationRequest.newBuilder().setBuyerId(buyer.toString()).setCheckoutId(checkout.toString()).setCaptureId(capture.toString()).build();
+        when(service.consume(buyer,checkout,capture)).thenReturn(consumed);var result=client().consume(request);assertThat(result.getConsumedCaptureId()).isEqualTo(capture.toString());assertThat(result.getConsumedAtEpochMicros()).isPositive();
+        for(var bad:List.of(view("CONSUMED",null),new Reservation(checkout,buyer,shop,"HELD",held.createdAt(),held.expiresAt(),null,held.items(),capture,held.createdAt().plusSeconds(1)),new Reservation(checkout,buyer,shop,"CONSUMED",held.createdAt(),held.expiresAt(),null,held.items(),capture,held.expiresAt()))){
+            when(service.consume(buyer,checkout,capture)).thenReturn(bad);error(()->client().consume(request),Status.Code.INTERNAL);
+        }
+    }
+
 }

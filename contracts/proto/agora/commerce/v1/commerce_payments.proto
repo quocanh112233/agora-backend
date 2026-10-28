@@ -1,0 +1,56 @@
+syntax = "proto3";
+package agora.commerce.v1;
+option java_package = "com.agora.contracts.commerce.v1";
+option java_multiple_files = true;
+
+// Trusted Payment authenticates the buyer and durably verifies capture before ApplyCapture.
+service CommercePayments {
+  rpc GetPayableOrder(PaymentOrderReference) returns (PayableOrderResponse);
+  rpc ApplyCapture(ApplyCaptureRequest) returns (CaptureApplicationResponse);
+  rpc GetCaptureApplication(CaptureApplicationReference) returns (CaptureApplicationResponse);
+}
+message PaymentOrderReference { string buyer_id = 1; string order_id = 2; }
+message PayableOrderResponse {
+  string buyer_id = 1;
+  string order_id = 2;
+  string checkout_id = 3;
+  string shop_id = 4;
+  string currency = 5;
+  int64 amount_vnd = 6;
+  int64 expires_at_epoch_micros = 7;
+}
+message ApplyCaptureRequest {
+  string capture_id = 1;
+  string payment_attempt_id = 2;
+  string buyer_id = 3;
+  string order_id = 4;
+  string provider_transaction_no = 5;
+  int64 amount_vnd = 6;
+  string currency = 7;
+}
+message CaptureApplicationReference {
+  string capture_id = 1;
+  string buyer_id = 2;
+  string order_id = 3;
+}
+enum CaptureApplicationState {
+  CAPTURE_APPLICATION_STATE_UNSPECIFIED = 0;
+  CAPTURE_PROCESSING = 1;
+  CAPTURE_APPLIED = 2;
+  CAPTURE_REFUND_REQUIRED = 3;
+}
+enum CaptureApplicationReason {
+  CAPTURE_APPLICATION_REASON_UNSPECIFIED = 0;
+  ORDER_EXPIRED = 1;
+  DUPLICATE_CAPTURE = 2;
+  AMOUNT_MISMATCH = 3;
+  RESERVATION_RELEASED = 4;
+}
+message CaptureApplicationResponse {
+  string capture_id = 1;
+  string buyer_id = 2;
+  string order_id = 3;
+  CaptureApplicationState state = 4;
+  CaptureApplicationReason reason = 5;
+  bool needs_reconciliation = 6;
+}

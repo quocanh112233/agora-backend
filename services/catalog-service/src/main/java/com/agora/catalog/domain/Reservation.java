@@ -6,7 +6,8 @@ import java.time.Instant;
 import java.util.*;
 
 public record Reservation(UUID checkoutId,UUID buyerId,UUID shopId,String state,Instant createdAt,
-                          Instant expiresAt,String releaseReason,List<Item> items) {
+                          Instant expiresAt,String releaseReason,List<Item> items,UUID consumedCaptureId,Instant consumedAt) {
+    public Reservation(UUID checkoutId,UUID buyerId,UUID shopId,String state,Instant createdAt,Instant expiresAt,String releaseReason,List<Item> items){this(checkoutId,buyerId,shopId,state,createdAt,expiresAt,releaseReason,items,null,null);}
     public Reservation {items=List.copyOf(items);}
     public record Line(UUID productId,UUID skuId,int quantity) {}
     public record Allocation(UUID lotId,int quantity) {}

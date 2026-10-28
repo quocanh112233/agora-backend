@@ -4,6 +4,7 @@
   <parent><groupId>com.agora</groupId><artifactId>agora-backend</artifactId><version>0.1.0-SNAPSHOT</version><relativePath>../../pom.xml</relativePath></parent>
   <artifactId>commerce-service</artifactId>
   <dependencies>
+    <dependency><groupId>com.agora</groupId><artifactId>commerce-contract</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>com.agora</groupId><artifactId>identity-contract</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>com.agora</groupId><artifactId>catalog-contract</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>io.grpc</groupId><artifactId>grpc-netty-shaded</artifactId></dependency>

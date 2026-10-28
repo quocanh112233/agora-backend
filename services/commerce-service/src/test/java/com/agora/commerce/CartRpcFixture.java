@@ -25,8 +25,13 @@ final class CartRpcFixture implements AutoCloseable {
     final Map<String,CheckoutHoldResult> decisions=new ConcurrentHashMap<>();
     final List<HoldCheckoutRequest> holdRequests=new CopyOnWriteArrayList<>();
     volatile long quoteExpiry;
+    final AtomicReference<ReservationResponse> settlementOverride=new AtomicReference<>();
+    final AtomicReference<Status> settlementFailure=new AtomicReference<>(),afterConsumeFailure=new AtomicReference<>();
+    final List<ConsumeReservationRequest> consumeRequests=new CopyOnWriteArrayList<>();
+    volatile Runnable consumeHook=()->{},getHook=()->{};
+
     static long micros(){var n=java.time.Instant.now();return n.getEpochSecond()*1000000+n.getNano()/1000;}
-    void resetCheckout(){quoteCalls.set(0);holdCalls.set(0);quoteFailure.set(null);holdFailure.set(null);afterHoldFailure.set(null);quoteOverride.set(null);holdOverride.set(null);accepted.clear();decisions.clear();holdRequests.clear();quoteHook=()->{};holdHook=()->{};quoteExpiry=0;}
+    void resetCheckout(){quoteCalls.set(0);holdCalls.set(0);quoteFailure.set(null);holdFailure.set(null);afterHoldFailure.set(null);quoteOverride.set(null);holdOverride.set(null);accepted.clear();decisions.clear();holdRequests.clear();quoteHook=()->{};holdHook=()->{};quoteExpiry=0;settlementOverride.set(null);settlementFailure.set(null);afterConsumeFailure.set(null);consumeRequests.clear();consumeHook=()->{};getHook=()->{};}
 
     final ManagedChannel identityChannel,catalogChannel;final Server identityServer,catalogServer;
     CartRpcFixture()throws Exception{
@@ -74,6 +79,26 @@ final class CartRpcFixture implements AutoCloseable {
                 });
                 if(afterHoldFailure.get()!=null){out.onError(afterHoldFailure.get().asRuntimeException());return;}
                 out.onNext(result);out.onCompleted();
+            }
+        }).addService(new CatalogReservationsGrpc.CatalogReservationsImplBase(){
+            @Override public void get(ReservationReference r,StreamObserver<ReservationResponse> out){
+                getHook.run();respond(r.getBuyerId(),r.getCheckoutId(),null,out);
+            }
+            @Override public void consume(ConsumeReservationRequest r,StreamObserver<ReservationResponse> out){
+                consumeRequests.add(r);consumeHook.run();respond(r.getBuyerId(),r.getCheckoutId(),r.getCaptureId(),out);
+            }
+            private void respond(String buyer,String checkout,String capture,StreamObserver<ReservationResponse> out){
+                if(settlementFailure.get()!=null){out.onError(settlementFailure.get().asRuntimeException());return;}
+                if(settlementOverride.get()!=null){out.onNext(settlementOverride.get());out.onCompleted();return;}
+                var decision=decisions.get(checkout);
+                if(decision==null||!decision.getReservation().getBuyerId().equals(buyer)){out.onError(Status.NOT_FOUND.asRuntimeException());return;}
+                var r=decision.getReservation();
+                if(capture!=null&&r.getState()==ReservationState.HELD){
+                    r=r.toBuilder().setState(ReservationState.CONSUMED).setConsumedCaptureId(capture).setConsumedAtEpochMicros(r.getCreatedAtEpochMicros()+1).build();
+                    decisions.put(checkout,CheckoutHoldResult.newBuilder().setReservation(r).build());
+                }
+                if(capture!=null&&afterConsumeFailure.get()!=null){out.onError(afterConsumeFailure.get().asRuntimeException());return;}
+                out.onNext(r);out.onCompleted();
             }
         }).build().start();
         identityChannel=InProcessChannelBuilder.forName(identity).directExecutor().disableRetry().build();

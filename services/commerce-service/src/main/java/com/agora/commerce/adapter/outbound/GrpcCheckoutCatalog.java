@@ -47,7 +47,8 @@ public class GrpcCheckoutCatalog implements CheckoutCatalog {
         };
         if(!response.hasReservation())throw Checkout.unavailable();var r=response.getReservation();
         if(!r.getBuyerId().equals(work.actor().toString())||!r.getCheckoutId().equals(work.checkoutId().toString())||!r.getShopId().equals(p.shopId().toString())||r.getCreatedAtEpochMicros()<=0||r.getExpiresAtEpochMicros()-r.getCreatedAtEpochMicros()!=900000000L||r.getItemsCount()!=p.items().size())throw Checkout.unavailable();
-        if(r.getState()==ReservationState.HELD&&r.getReleaseReason()!=ReservationReleaseReason.RESERVATION_RELEASE_REASON_UNSPECIFIED||r.getState()==ReservationState.RELEASED&&r.getReleaseReason()!=ReservationReleaseReason.CANCELLED&&r.getReleaseReason()!=ReservationReleaseReason.EXPIRED)throw Checkout.unavailable();
+        if(r.getState()==ReservationState.HELD&&r.getReleaseReason()!=ReservationReleaseReason.RESERVATION_RELEASE_REASON_UNSPECIFIED||r.getState()==ReservationState.RELEASED&&r.getReleaseReason()!=ReservationReleaseReason.CANCELLED&&r.getReleaseReason()!=ReservationReleaseReason.EXPIRED&&r.getReleaseReason()!=ReservationReleaseReason.UNAVAILABLE)throw Checkout.unavailable();
+        if(r.getState()!=ReservationState.CONSUMED&&(!r.getConsumedCaptureId().isEmpty()||r.getConsumedAtEpochMicros()!=0))throw Checkout.unavailable();
         var seen=new HashSet<String>();var lots=new HashSet<String>();
         for(var i:r.getItemsList()){
             var expected=p.items().stream().filter(v->v.skuId().toString().equals(i.getSkuId())&&v.productId().toString().equals(i.getProductId())).findFirst().orElseThrow(Checkout::unavailable);
