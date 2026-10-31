@@ -52,6 +52,13 @@ class PaymentRpcTests {
         assertThat(result.getState()).isEqualTo(CaptureApplicationState.CAPTURE_REFUND_REQUIRED);assertThat(result.getReason()).isEqualTo(CaptureApplicationReason.DUPLICATE_CAPTURE);
         assertThat(result.getAllFields().keySet()).allSatisfy(field->assertThat(field.getName()).isIn("capture_id","buyer_id","order_id","state","reason","needs_reconciliation"));
     }
+    @Test void reviewEligibilityAuthenticatesValidatesAndBindsSnapshot(){
+        var empty=ReviewLineReference.getDefaultInstance();status(()->stub("wrong").getReviewEligibility(empty),Status.Code.PERMISSION_DENIED);status(()->stub(CartRpcFixture.TOKEN).getReviewEligibility(empty),Status.Code.INVALID_ARGUMENT);
+        UUID buyer=UUID.randomUUID(),order=UUID.randomUUID(),sku=UUID.randomUUID(),product=UUID.randomUUID(),shop=UUID.randomUUID();
+        var input=ReviewLineReference.newBuilder().setBuyerId(buyer.toString()).setOrderId(order.toString()).setSkuId(sku.toString()).build();
+        when(service.reviewLine(buyer,order,sku)).thenReturn(new PaymentApplicationService.ReviewLine(buyer,order,sku,product,shop));var result=stub(CartRpcFixture.TOKEN).getReviewEligibility(input);assertThat(result.getProductId()).isEqualTo(product.toString());assertThat(result.getShopId()).isEqualTo(shop.toString());assertThat(result.getBuyerId()).isEqualTo(buyer.toString());
+        when(service.reviewLine(buyer,order,sku)).thenThrow(new CartFailure(409,"REVIEW_NOT_ELIGIBLE","private"));status(()->stub(CartRpcFixture.TOKEN).getReviewEligibility(input),Status.Code.FAILED_PRECONDITION);
+    }
     @Test void listenerValidatesConfigurationAndSupportsRestart(){
         for(int port:List.of(-1,65536))assertThatThrownBy(()->new CommerceGrpcServer(new PaymentRpc(service),port,CartRpcFixture.TOKEN)).isInstanceOf(IllegalArgumentException.class);
         for(String token:List.of("","short","x".repeat(257),"has spaces".repeat(5)))assertThatThrownBy(()->new CommerceGrpcServer(new PaymentRpc(service),0,token)).isInstanceOf(IllegalArgumentException.class);

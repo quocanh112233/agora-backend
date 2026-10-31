@@ -15,7 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.config.import=","agora.vnpay.enabled=true","agora.vnpay.tmn-code=TEST0001","agora.vnpay.hash-secret=synthetic-payment-test-secret-not-real","agora.vnpay.return-url=https://app.example.test/api/v1/payments/vnpay/return","agora.payment.worker-initial-delay-ms=3600000"})
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"agora.vnpay.query-enabled=true","agora.vnpay.ipn-enabled=true","spring.config.import=","agora.vnpay.enabled=true","agora.vnpay.tmn-code=TEST0001","agora.vnpay.hash-secret=synthetic-payment-test-secret-not-real","agora.vnpay.return-url=https://app.example.test/api/v1/payments/vnpay/return","agora.payment.worker-initial-delay-ms=3600000"})
 @Import(PaymentApiTests.RemoteConfiguration.class)
 class PaymentApiTests {
     @Container static final PostgreSQLContainer POSTGRES=new PostgreSQLContainer(System.getProperty("agora.test.postgres-image","postgres:16.15-alpine"));
@@ -76,7 +76,7 @@ class PaymentApiTests {
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     String attempt(String session,String order)throws Exception {var r=call(session,"POST","/me/orders/"+order+"/payment-attempts","{}",UUID.randomUUID().toString(),true);assertThat(r.statusCode()).isEqualTo(201);return json.readTree(r.body()).path("id").asString();}
-    String signed(String attempt,String txn,String code,String status,long amount)throws Exception {
+    static String signed(String attempt,String txn,String code,String status,long amount)throws Exception {
         var params=new TreeMap<String,String>();params.put("vnp_TmnCode","TEST0001");params.put("vnp_TxnRef",attempt.replace("-",""));params.put("vnp_Amount",Long.toString(amount));params.put("vnp_TransactionNo",txn);params.put("vnp_ResponseCode",code);params.put("vnp_TransactionStatus",status);
         String canonical=params.entrySet().stream().map(e->URLEncoder.encode(e.getKey(),java.nio.charset.StandardCharsets.US_ASCII)+"="+URLEncoder.encode(e.getValue(),java.nio.charset.StandardCharsets.US_ASCII)).collect(java.util.stream.Collectors.joining("&"));
         var mac=javax.crypto.Mac.getInstance("HmacSHA512");mac.init(new javax.crypto.spec.SecretKeySpec("synthetic-payment-test-secret-not-real".getBytes(java.nio.charset.StandardCharsets.US_ASCII),"HmacSHA512"));return canonical+"&vnp_SecureHash="+HexFormat.of().formatHex(mac.doFinal(canonical.getBytes(java.nio.charset.StandardCharsets.US_ASCII)));

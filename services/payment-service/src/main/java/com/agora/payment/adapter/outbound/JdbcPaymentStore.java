@@ -13,9 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class JdbcPaymentStore implements PaymentStore {
     private final JdbcTemplate jdbc;
-    private final boolean enabled;
+    private final boolean enabled,queryEnabled;
     private final String merchant,secret,returnUrl;
-    public JdbcPaymentStore(JdbcTemplate jdbc,@Value("${agora.vnpay.enabled:false}") boolean enabled,@Value("${agora.vnpay.tmn-code:}") String merchant,@Value("${agora.vnpay.hash-secret:}") String secret,@Value("${agora.vnpay.return-url}") String returnUrl){this.jdbc=jdbc;this.enabled=enabled;this.merchant=merchant;this.secret=secret;this.returnUrl=returnUrl;}
+    public JdbcPaymentStore(JdbcTemplate jdbc,@Value("${agora.vnpay.query-enabled:false}") boolean queryEnabled,@Value("${agora.vnpay.enabled:false}") boolean enabled,@Value("${agora.vnpay.tmn-code:}") String merchant,@Value("${agora.vnpay.hash-secret:}") String secret,@Value("${agora.vnpay.return-url}") String returnUrl){this.jdbc=jdbc;this.queryEnabled=queryEnabled;this.enabled=enabled;this.merchant=merchant;this.secret=secret;this.returnUrl=returnUrl;}
     private Attempt read(ResultSet r)throws SQLException {
         String state=r.getString("state");boolean live=r.getBoolean("live");
         return new Attempt(r.getObject("id",UUID.class),r.getObject("order_id",UUID.class),r.getObject("request_key",UUID.class),state.equals("PENDING")&&!live?"EXPIRED":state,r.getTimestamp("expires_at").toInstant(),state.equals("PENDING")&&live&&r.getBoolean("can_pay")?r.getString("redirect_url"):null,r.getString("application_state"),r.getString("refund_state"),r.getBoolean("reconciliation_required"));
@@ -32,7 +32,7 @@ public class JdbcPaymentStore implements PaymentStore {
         UUID id=UUID.randomUUID();String txn=id.toString().replace("-","");VnpayCodec.Redirect redirect;
         try{redirect=new VnpayCodec(merchant,secret,URI.create(returnUrl)).redirect(txn,order.amountVnd(),now,order.expiresAt(),ip);}catch(IllegalArgumentException e){throw Payment.unavailable();}
         jdbc.update("INSERT INTO payment.attempts(id,actor_id,order_id,request_key,checkout_id,shop_id,txn_ref,amount_vnd,currency,state,created_at,expires_at,ip_address,redirect_url) VALUES(?,?,?,?,?,?,?,?,?,'PENDING',?,?,?,?)",id,actor,order.orderId(),key,order.checkoutId(),order.shopId(),txn,order.amountVnd(),"VND",Timestamp.from(now),Timestamp.from(order.expiresAt()),ip,redirect.url().toString());
-        jdbc.update("INSERT INTO payment.provider_queries(attempt_id,next_run_at) VALUES(?,?)",id,Timestamp.from(order.expiresAt().plusSeconds(5)));
+        if(queryEnabled)jdbc.update("INSERT INTO payment.provider_queries(attempt_id,next_run_at) VALUES(?,?)",id,Timestamp.from(order.expiresAt().plusSeconds(5)));
         return new Created(byId(actor,id),true);
     }
     @Override @Transactional(readOnly=true) public Optional<Target> target(String txnRef){

@@ -1,5 +1,7 @@
 # Agora — Cấu trúc thư mục
 
+Cập nhật 29/10/2026: đã hoàn thành backend Feedback M4a (477 tests toàn backend đạt ngày29/10), service thứ sáu dùng PostgreSQL riêng, review dòng đơn PAID qua Commerce gRPC. [Phạm vi và bằng chứng](../feedback.md). VNPAY sandbox tiếp tục dùng TMN/HASH, không làm IPN; query99 còn cần xử lý để xác minh tiền; frontend Feedback, ảnh và Q&A là các lát cắt sau. Các snapshot cũ bên dưới giữ theo ngày.
+
 ## Phạm vi cấu trúc — 28/10/2026
 
 [ADR-0004](../decisions/0004-order-and-payment-only.md) giữ sáu service Identity/Merchant/Catalog/Commerce/Payment/Feedback. Commerce sở hữu giỏ/checkout/đơn, capture application và notification dự kiến; bỏ Fulfillment, không adapter GHN, shipment, pickup hoặc module tính phí/kiện/địa chỉ trong target. Hồ sơ Merchant/contact/pickup_address, metadata SKU và migration đã có giữ nguyên như legacy.
@@ -26,7 +28,7 @@ backend/
 │   ├── catalog-service/            # Product/SKU, ảnh, visibility, lô, public read và reservation M3b
 │   ├── commerce-service/           # Giỏ M3a; checkout/đơn M3c đã nghiệm thu local ngày27/10/2026, HTTP8084
 │   ├── payment-service/            # M3d implementation/tests local; HTTP8085, provider proof pending
-│   └── feedback-service/           # Dự kiến; JDBC/Flyway/PostgreSQL riêng
+│   └── feedback-service/           # M4a backend; HTTP8086, JDBC/Flyway/PostgreSQL riêng
 ├── libraries/
 │   ├── identity-contract/          # Sinh Java/protobuf từ contract Identity
 │   ├── merchant-contract/          # Sinh Java/protobuf từ contract Merchant
@@ -48,7 +50,7 @@ backend/
 └── .github/workflows/
 ```
 
-Reactor hiện có bốn contract module identity-contract/merchant-contract/catalog-contract/commerce-contract và năm service identity-service/merchant-service/catalog-service/commerce-service/payment-service; Feedback là service thứ sáu dự kiến. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Commerce cấu hình agora_commerce/schema commerce, fixture dùng database test riêng; chưa xác nhận tạo/migrate native. Payment đã có module và migration V1/V2, mặc định database agora_payment/schema payment; demo M3d dùng năm database Docker biệt lập, không thay đổi native database. Các đường dẫn Feedback/infra trong cây là thiết kế, không mặc định đã tạo file hoặc database.
+Reactor hiện có bốn contract module identity-contract/merchant-contract/catalog-contract/commerce-contract và sáu service identity-service/merchant-service/catalog-service/commerce-service/payment-service/feedback-service. Maven Wrapper 3.9.16 đã ghim checksum. Backend/.env bị Git ignore và chỉ dùng local; .env.example được phép commit. Database agora/agora_merchant/agora_catalog chạy trên PostgreSQL native hiện có, chưa cần infra/compose.local.yaml. Service không phụ thuộc JAR của service khác; được dùng generated contract cần thiết. Commerce cấu hình agora_commerce/schema commerce, fixture dùng database test riêng; chưa xác nhận tạo/migrate native. Payment đã có module và migration V1/V2, mặc định database agora_payment/schema payment; demo M3d dùng năm database Docker biệt lập, không thay đổi native database. Feedback M4a đã có source và migration V1; database mặc định agora_feedback/schema feedback, tests dùng Testcontainers riêng, chưa provision native database. Các đường dẫn infra trong cây vẫn là thiết kế.
 
 ## 2. Một service theo DDD
 

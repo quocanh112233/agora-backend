@@ -28,6 +28,7 @@
         <module>services/catalog-service</module>
         <module>services/commerce-service</module>
         <module>services/payment-service</module>
+        <module>services/feedback-service</module>
     </modules>
 
     <properties>

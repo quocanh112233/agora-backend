@@ -5,6 +5,8 @@ option java_multiple_files = true;
 
 // Trusted Payment authenticates the buyer and durably verifies capture before ApplyCapture.
 service CommercePayments {
+  // Feedback authenticates the buyer; only a PAID line is eligible. No payment side effects.
+  rpc GetReviewEligibility(ReviewLineReference) returns (ReviewEligibility);
   rpc GetPayableOrder(PaymentOrderReference) returns (PayableOrderResponse);
   rpc ApplyCapture(ApplyCaptureRequest) returns (CaptureApplicationResponse);
   rpc GetCaptureApplication(CaptureApplicationReference) returns (CaptureApplicationResponse);
@@ -53,4 +55,13 @@ message CaptureApplicationResponse {
   CaptureApplicationState state = 4;
   CaptureApplicationReason reason = 5;
   bool needs_reconciliation = 6;
+}
+
+message ReviewLineReference { string buyer_id = 1; string order_id = 2; string sku_id = 3; }
+message ReviewEligibility {
+  string buyer_id = 1;
+  string order_id = 2;
+  string sku_id = 3;
+  string product_id = 4;
+  string shop_id = 5;
 }

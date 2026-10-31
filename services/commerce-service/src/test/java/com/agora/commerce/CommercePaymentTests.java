@@ -41,6 +41,14 @@ class CommercePaymentTests {
     void released(){rpc.settlementOverride.set(held().toBuilder().setState(ReservationState.RELEASED).setReleaseReason(ReservationReleaseReason.UNAVAILABLE).clearConsumedCaptureId().clearConsumedAtEpochMicros().build());}
     void retry(){jdbc.update("UPDATE commerce.capture_applications SET lease_until=clock_timestamp()-interval '1 second' WHERE state='PROCESSING'");}
     String state(){return checkout.order(buyer,order).state();}
+    @Test void reviewEligibilityUsesPaidSnapshotAndOwnedLine(){
+        var original=checkout.order(buyer,order);var item=original.items().getFirst();
+        assertThatThrownBy(()->payments.reviewLine(buyer,order,item.skuId())).isInstanceOfSatisfying(CartFailure.class,e->assertThat(e.status()).isEqualTo(409));
+        payments.apply(request);var line=payments.reviewLine(buyer,order,item.skuId());assertThat(line.productId()).isEqualTo(item.productId());assertThat(line.shopId()).isEqualTo(original.shopId());
+        assertThatThrownBy(()->payments.reviewLine(UUID.randomUUID(),order,item.skuId())).isInstanceOfSatisfying(CartFailure.class,e->assertThat(e.status()).isEqualTo(404));
+        assertThatThrownBy(()->payments.reviewLine(buyer,order,UUID.randomUUID())).isInstanceOfSatisfying(CartFailure.class,e->assertThat(e.status()).isEqualTo(404));
+        jdbc.update("UPDATE commerce.orders SET expires_at=clock_timestamp()-interval '1 day' WHERE id=?",order);assertThat(payments.reviewLine(buyer,order,item.skuId())).isEqualTo(line);
+    }
     @Test void captureIsDurableBeforeNetworkThenPaidAndReplayIsPermanent(){
         rpc.consumeHook=()->{
             assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();

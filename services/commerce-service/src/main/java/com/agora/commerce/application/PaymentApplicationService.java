@@ -20,6 +20,13 @@ public class PaymentApplicationService {
         if(!reservation.state().equals("HELD"))throw notPayable();
         var current=store.order(buyer,order);if(!current.order().state().equals("AWAITING_PAYMENT"))throw notPayable();return current;
     });}
+    public record ReviewLine(UUID buyerId,UUID orderId,UUID skuId,UUID productId,UUID shopId) {}
+    public ReviewLine reviewLine(UUID buyer,UUID order,UUID sku){return storage(()->{
+        var owned=store.order(buyer,order);var value=owned.order();
+        if(!value.state().equals("PAID"))throw new CartFailure(409,"REVIEW_NOT_ELIGIBLE","Only paid order lines can be reviewed.");
+        var item=value.items().stream().filter(i->i.skuId().equals(sku)).findFirst().orElseThrow(Checkout::missing);
+        return new ReviewLine(buyer,order,sku,item.productId(),value.shopId());
+    });}
     public Receipt apply(Request request){return storage(()->{
         var receipt=store.record(request);if(receipt.state().equals("PROCESSING"))process(receipt.captureId());
         return store.receipt(request.buyerId(),request.orderId(),request.captureId());

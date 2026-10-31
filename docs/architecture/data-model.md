@@ -1,5 +1,7 @@
 # Agora — Mô hình dữ liệu
 
+Cập nhật 29/10/2026 — Feedback M4a: `agora_feedback`/schema `feedback` có `reviews` UNIQUE(order_id,sku_id), CHECK rating1–5, content/reply tối đa2000 Unicode code points, version và partial public index; `moderation_audit` lưu lý do/actor/visibility/version cùng transaction. Dòng đơn hiện nằm trong snapshot Commerce nên dùng cặp (orderId,skuId), không tạo UUID dòng giả hoặc FK xuyên database. Xem [Feedback](../feedback.md) cho phạm vi và bằng chứng; các thiết kế tương lai bên dưới chưa phải schema đã triển khai.
+
 ## Catalog M3b — V6 reservation
 
 [V6](../../services/catalog-service/src/main/resources/db/migration/V6__reservations.sql) thêm bốn bảng; V1–V5 giữ nguyên.

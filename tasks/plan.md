@@ -1,5 +1,7 @@
 # Agora — Kế hoạch triển khai
 
+Cập nhật 29/10/2026: đã hoàn thành backend Feedback M4a (477 tests toàn backend đạt ngày29/10), service thứ sáu dùng PostgreSQL riêng, review dòng đơn PAID qua Commerce gRPC. [Phạm vi và bằng chứng](../docs/feedback.md). VNPAY sandbox tiếp tục dùng TMN/HASH, không làm IPN; query99 còn cần xử lý để xác minh tiền; frontend Feedback, ảnh và Q&A là các lát cắt sau. Các snapshot cũ bên dưới giữ theo ngày.
+
 ## Phạm vi và bước tiếp — 27/10/2026
 
 [ADR-0004](../docs/decisions/0004-order-and-payment-only.md) thay các yêu cầu logistics cũ: chỉ đặt hàng/thanh toán, không GHN/Fulfillment, shipping/pickup, địa chỉ giao nhận, kiện, phí hoặc tracking. Tổng đơn bằng tổng tiền hàng; sáu service giữ nguyên. Hồ sơ Merchant/contact/pickup_address, quy cách SKU, allocated legacy và migration cũ giữ nguyên, không xóa dữ liệu.

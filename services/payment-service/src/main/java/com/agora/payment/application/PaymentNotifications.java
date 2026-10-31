@@ -6,8 +6,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
 @Service
 public class PaymentNotifications {
+    private final boolean queryEnabled;
     private final PaymentProvider provider;private final PaymentStore store;private final ProviderJobs jobs;
-    public PaymentNotifications(PaymentProvider provider,PaymentStore store,ProviderJobs jobs){this.provider=provider;this.store=store;this.jobs=jobs;}
+    public PaymentNotifications(PaymentProvider provider,PaymentStore store,ProviderJobs jobs,@org.springframework.beans.factory.annotation.Value("${agora.vnpay.query-enabled:false}") boolean queryEnabled){this.queryEnabled=queryEnabled;this.provider=provider;this.store=store;this.jobs=jobs;}
     public String ipn(String raw){
         try {
             PaymentProvider.Authenticated ref;
@@ -18,7 +19,7 @@ public class PaymentNotifications {
         }catch(PaymentFailure|DataAccessException|TransactionException e){return "99";}
     }
     public Target returned(String raw){
-        try{var ref=provider.authenticate(raw);var target=store.target(ref.txnRef()).orElseThrow(()->new PaymentFailure(400,"BAD_REQUEST","Invalid payment return."));ref.bindReturn(target.amountVnd());jobs.scheduleQuery(target);return target;}
+        try{var ref=provider.authenticate(raw);var target=store.target(ref.txnRef()).orElseThrow(()->new PaymentFailure(400,"BAD_REQUEST","Invalid payment return."));ref.bindReturn(target.amountVnd());if(queryEnabled)jobs.scheduleQuery(target);return target;}
         catch(IllegalArgumentException e){throw new PaymentFailure(400,"BAD_REQUEST","Invalid payment return.");}
         catch(DataAccessException|TransactionException e){throw Payment.unavailable();}
     }

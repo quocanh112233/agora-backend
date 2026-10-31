@@ -3,6 +3,7 @@ import com.agora.payment.domain.Payment.ProviderResult;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 @Service
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="agora.vnpay.query-enabled",havingValue="true")
 public class ProviderReconciliation {
     private final ProviderJobs jobs;private final PaymentProvider provider;
     public ProviderReconciliation(ProviderJobs jobs,PaymentProvider provider){this.jobs=jobs;this.provider=provider;}

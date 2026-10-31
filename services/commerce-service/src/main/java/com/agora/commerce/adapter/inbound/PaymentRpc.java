@@ -17,6 +17,12 @@ import org.springframework.transaction.TransactionException;
 public class PaymentRpc extends CommercePaymentsGrpc.CommercePaymentsImplBase {
     private final PaymentApplicationService service;
     public PaymentRpc(PaymentApplicationService service){this.service=service;}
+    @Override public void getReviewEligibility(ReviewLineReference input,StreamObserver<ReviewEligibility> out){
+        invoke(input,out,()->{
+            var line=service.reviewLine(uuid(input.getBuyerId()),uuid(input.getOrderId()),uuid(input.getSkuId()));
+            return ReviewEligibility.newBuilder().setBuyerId(line.buyerId().toString()).setOrderId(line.orderId().toString()).setSkuId(line.skuId().toString()).setProductId(line.productId().toString()).setShopId(line.shopId().toString()).build();
+        });
+    }
     @Override public void getPayableOrder(PaymentOrderReference input,StreamObserver<PayableOrderResponse> out){
         invoke(input,out,()->{
             var owned=service.payable(uuid(input.getBuyerId()),uuid(input.getOrderId()));var o=owned.order();

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agora Payment API",
-    "version": "1.0.0",
-    "description": "VNPAY sandbox only. Current auth/CSRF before mutation replay. No client amount, card details, shipping or financial success derived from Return."
+    "version": "1.0.2",
+    "description": "VNPAY sandbox redirect and authenticated Return only for portfolio. Merchant TMN code and HMAC secret are still required. IPN and querydr/automatic provider reconciliation are disabled by default and out of portfolio scope. Return correlates but does not record capture or mark PAID. Existing money/stock validation remains intact; there is no fake payment simulator. Legacy callback/reconciliation tests can opt in explicitly."
   },
   "servers": [
     {
@@ -353,7 +353,7 @@
       "get": {
         "operationId": "vnpayIpn",
         "security": [],
-        "description": "Bound raw query; authenticate checksum before lookup. Commit inbox/capture/job before 00; never infer credit from Return. Provider errors use HTTP200/RspCode. Extra signed vnp fields participate in checksum.",
+        "description": "Optional legacy callback, disabled by default (VNPAY_IPN_ENABLED=false). Not used or proxied by the portfolio frontend. Existing IPN codec/storage tests can opt in explicitly. Return remains available; querydr is also disabled by default (VNPAY_QUERY_ENABLED=false) and out of portfolio scope.",
         "parameters": [
           {
             "name": "vnp_TmnCode",
@@ -474,7 +474,7 @@
       "get": {
         "operationId": "vnpayReturn",
         "security": [],
-        "description": "Verify/correlate only; no capture or PAID write. May enqueue authoritative provider query. Redirect to fixed frontend with opaque refs.",
+        "description": "Verify/correlate only; no capture or PAID write. Provider query enqueue is disabled by default (VNPAY_QUERY_ENABLED=false) and out of portfolio scope. Redirect to fixed frontend with opaque refs.",
         "parameters": [
           {
             "name": "vnp_TmnCode",
