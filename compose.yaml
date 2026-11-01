@@ -1,0 +1,125 @@
+name: agora-demo
+
+x-backend: &backend
+  network_mode: service:network
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 512m
+  stop_grace_period: 30s
+  depends_on:
+    network:
+      condition: service_started
+    postgres:
+      condition: service_healthy
+x-environment: &environment
+  DB_HOST: postgres
+  DB_PORT: '5432'
+  DB_USERNAME: postgres
+  DB_PASSWORD: ${DEMO_DB_PASSWORD:?Run python3 scripts/init-demo-env.py and load .env.docker}
+  INTERSERVICE_TOKEN: ${DEMO_INTERNAL_TOKEN:?Load .env.docker}
+
+services:
+  network:
+    image: alpine:3.23
+    command: [sleep, infinity]
+    user: '65534:65534'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ['127.0.0.1:3000:3000']
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DEMO_DB_PASSWORD:?Load .env.docker}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/01-agora.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d agora']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+  identity:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: identity-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8081'
+      SERVER_PORT: '8081'
+      IDENTITY_GRPC_ENABLED: 'true'
+      SESSION_COOKIE_SECURE: 'false'
+  merchant:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: merchant-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8082'
+      MERCHANT_GRPC_ENABLED: 'true'
+  catalog:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: catalog-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8083'
+      CATALOG_GRPC_ENABLED: 'true'
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+  commerce:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: commerce-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8084'
+      COMMERCE_GRPC_ENABLED: 'true'
+  payment:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: payment-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8085'
+      VNPAY_ENABLED: ${VNPAY_ENABLED:-false}
+      VNPAY_IPN_ENABLED: 'false'
+      VNPAY_QUERY_ENABLED: 'false'
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
+      VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
+      VNPAY_RETURN_URL: http://127.0.0.1:3000/api/v1/payments/vnpay/return
+  feedback:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: feedback-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8086'
+  frontend:
+    network_mode: service:network
+    build: ../frontend
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    depends_on:
+      network: {condition: service_started}
+      identity: {condition: service_healthy}
+      merchant: {condition: service_healthy}
+      catalog: {condition: service_healthy}
+      commerce: {condition: service_healthy}
+      payment: {condition: service_healthy}
+      feedback: {condition: service_healthy}
+
+volumes:
+  postgres-data:

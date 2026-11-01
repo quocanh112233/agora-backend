@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 @Testcontainers
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"agora.vnpay.query-enabled=true","agora.vnpay.ipn-enabled=true","spring.config.import=","agora.vnpay.enabled=true","agora.vnpay.tmn-code=TEST0001","agora.vnpay.hash-secret=synthetic-payment-test-secret-not-real","agora.vnpay.return-url=https://app.example.test/api/v1/payments/vnpay/return","agora.payment.worker-initial-delay-ms=3600000"})
 @Import(PaymentApiTests.RemoteConfiguration.class)
+// Fixed numeric provider IDs avoid depending on machine uptime; each test truncates its data.
 class PaymentApiTests {
     @Container static final PostgreSQLContainer POSTGRES=new PostgreSQLContainer(System.getProperty("agora.test.postgres-image","postgres:16.15-alpine"));
     @DynamicPropertySource static void database(DynamicPropertyRegistry p){p.add("spring.datasource.url",POSTGRES::getJdbcUrl);p.add("spring.datasource.username",POSTGRES::getUsername);p.add("spring.datasource.password",POSTGRES::getPassword);p.add("agora.internal-token",()->PaymentRpcFixture.TOKEN);}
@@ -83,7 +84,7 @@ class PaymentApiTests {
     }
     String ipn(String query)throws Exception {var r=call(null,"GET","/payments/vnpay/ipn?"+query,null,null,false);assertThat(r.statusCode()).as(r.body()).isEqualTo(200);return json.readTree(r.body()).path("RspCode").asString();}
     @Test void ipnCommitsCaptureLedgerAndJobBeforeAckAndNormalizesReplay()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="1"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="10000000001";
         assertThat(ipn(signed(id,"00"+txn,"00","00",7000000))).isEqualTo("00");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id IN(SELECT id FROM payment.captures WHERE attempt_id=?) AND kind='CAPTURE'",Integer.class,UUID.fromString(id))).isEqualTo(1);
@@ -100,7 +101,7 @@ class PaymentApiTests {
         assertThat(call(session,"POST","/me/orders/"+order+"/payment-attempts","{}",UUID.randomUUID().toString(),true).statusCode()).isEqualTo(409);
     }
     @Test void duplicateMoneyAfterSuccessCreatesSeparateCaptureAndJob()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="2"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="20000000001";
         assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");
         assertThat(ipn(signed(id,"3"+txn,"00","00",7000000))).isEqualTo("00");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(2);
@@ -108,19 +109,19 @@ class PaymentApiTests {
         assertThat(jdbc.queryForObject("SELECT state FROM payment.attempts WHERE id=?",String.class,UUID.fromString(id))).isEqualTo("SUCCEEDED");
     }
     @Test void lateSuccessCannotBeLostAgainstNewPendingAttempt()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),first=attempt(session,order),txn="4"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),order=rpc.order(session),first=attempt(session,order),txn="40000000001";
         assertThat(ipn(signed(first,"0","24","02",7000000))).isEqualTo("00");String second=attempt(session,order);
         assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");assertThat(ipn(signed(second,"5"+txn,"00","00",7000000))).isEqualTo("00");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE order_id=?",Integer.class,UUID.fromString(order))).isEqualTo(2);
     }
     @Test void sameProviderTransactionCannotCreditDifferentAttempt()throws Exception {
-        String s=rpc.account(),first=attempt(s,rpc.order(s)),second=attempt(s,rpc.order(s)),txn="6"+Long.toString(System.nanoTime()).substring(3,13);
+        String s=rpc.account(),first=attempt(s,rpc.order(s)),second=attempt(s,rpc.order(s)),txn="60000000001";
         assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");assertThat(ipn(signed(second,txn,"00","00",7000000))).isEqualTo("99");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE provider_transaction_no=?",Integer.class,txn)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT needs_reconciliation FROM payment.attempts WHERE id=?",Boolean.class,UUID.fromString(second))).isTrue();
     }
     @Test void sqlFailureBeforeCommitCannotAcknowledgeMoney()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="7"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="70000000001";
         jdbc.execute("ALTER TABLE payment.ledger_entries ADD CONSTRAINT injected_ledger_failure CHECK(kind!='CAPTURE') NOT VALID");
         try{assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("99");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isZero();}
         finally{jdbc.execute("ALTER TABLE payment.ledger_entries DROP CONSTRAINT injected_ledger_failure");}
@@ -149,7 +150,7 @@ class PaymentApiTests {
     void retryCaptureJobs(){jdbc.update("UPDATE payment.capture_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE state='PENDING'");}
     UUID captureId(String id){return jdbc.queryForObject("SELECT id FROM payment.captures WHERE attempt_id=? ORDER BY created_at LIMIT 1",UUID.class,UUID.fromString(id));}
     @Test void recoveryAppliesCommittedCaptureOutsideDatabaseTransaction()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="8"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="80000000001";
         assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");
         rpc.captureHook=()->assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
         try{recoverPayments();}finally{rpc.captureHook=()->{};}
@@ -157,32 +158,32 @@ class PaymentApiTests {
         var capture=rpc.captures.stream().filter(c->c.getOrderId().equals(order)).findFirst().orElseThrow();assertThat(capture.getCaptureId()).isEqualTo(captureId(id).toString());assertThat(capture.getAmountVnd()).isEqualTo(70000);assertThat(capture.getBuyerId()).isEqualTo(rpc.sessions.get(session).toString());
     }
     @Test void lostCommerceReplyReplaysSameCaptureWithoutRefundOrExtraLedger()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="9"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");
+        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="90000000001";assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");
         rpc.afterCaptureFailure.set(io.grpc.Status.UNAVAILABLE);try{recoverPayments();}finally{rpc.afterCaptureFailure.set(null);}
         assertThat(jdbc.queryForObject("SELECT application_state FROM payment.captures WHERE attempt_id=?",String.class,UUID.fromString(id))).isEqualTo("PROCESSING");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.refunds WHERE capture_id=?",Integer.class,captureId(id))).isZero();
         retryCaptureJobs();recoverPayments();var requests=rpc.captures.stream().filter(c->c.getOrderId().equals(order)).toList();assertThat(requests).hasSize(2);assertThat(requests.getFirst()).isEqualTo(requests.getLast());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id=? AND kind='CAPTURE'",Integer.class,captureId(id))).isEqualTo(1);
     }
     @Test void definitiveRefundDecisionReservesMoneyOnceWithoutClaimingProviderRefund()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="11"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
+        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="110000000001";assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
         rpc.applied.put(capture.toString(),com.agora.contracts.commerce.v1.CaptureApplicationResponse.newBuilder().setCaptureId(capture.toString()).setBuyerId(rpc.sessions.get(session).toString()).setOrderId(order).setState(com.agora.contracts.commerce.v1.CaptureApplicationState.CAPTURE_REFUND_REQUIRED).setReason(com.agora.contracts.commerce.v1.CaptureApplicationReason.DUPLICATE_CAPTURE).build());
         recoverPayments();recoverPayments();var result=json.readTree(call(session,"GET","/me/payment-attempts/"+id,null,null,false).body());assertThat(result.path("applicationState").asString()).isEqualTo("REFUND_REQUIRED");assertThat(result.path("refundState").asString()).isEqualTo("RESERVED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.refunds WHERE capture_id=? AND amount_vnd=70000",Integer.class,capture)).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id=? AND kind='REFUND_RESERVED'",Integer.class,capture)).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id=? AND kind='REFUND_SUCCEEDED'",Integer.class,capture)).isZero();
     }
     @Test void staleLeaseCannotCompleteEvenWhenRemoteAlreadyApplied()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="12"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="120000000001";assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
         rpc.captureHook=()->jdbc.update("UPDATE payment.capture_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE capture_id=?",capture);
         try{recoverPayments();}finally{rpc.captureHook=()->{};}
         assertThat(jdbc.queryForObject("SELECT application_state FROM payment.captures WHERE id=?",String.class,capture)).isEqualTo("PROCESSING");recoverPayments();assertThat(jdbc.queryForObject("SELECT application_state FROM payment.captures WHERE id=?",String.class,capture)).isEqualTo("APPLIED");
     }
 
     @Test void lateCapturedMoneyHidesOtherPendingLinkForSameOrder()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),first=attempt(session,order),txn="13"+Long.toString(System.nanoTime()).substring(3,13);
+        String session=rpc.account(),order=rpc.order(session),first=attempt(session,order),txn="130000000001";
         assertThat(ipn(signed(first,"0","24","02",7000000))).isEqualTo("00");String second=attempt(session,order);assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");
         var read=json.readTree(call(session,"GET","/me/payment-attempts/"+second,null,null,false).body());assertThat(read.path("state").asString()).isEqualTo("PENDING");assertThat(read.path("redirectUrl").isNull()).isTrue();
     }
     @Test void malformedCommerceApplicationCannotFabricateRefundOrApplied()throws Exception {
-        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="14"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
+        String session=rpc.account(),order=rpc.order(session),id=attempt(session,order),txn="140000000001";assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);
         var valid=com.agora.contracts.commerce.v1.CaptureApplicationResponse.newBuilder().setCaptureId(capture.toString()).setBuyerId(rpc.sessions.get(session).toString()).setOrderId(order).setState(com.agora.contracts.commerce.v1.CaptureApplicationState.CAPTURE_APPLIED).build();
         for(var bad:List.of(valid.toBuilder().setCaptureId(UUID.randomUUID().toString()).build(),valid.toBuilder().setOrderId(UUID.randomUUID().toString()).build(),valid.toBuilder().setState(com.agora.contracts.commerce.v1.CaptureApplicationState.CAPTURE_REFUND_REQUIRED).build(),valid.toBuilder().setReason(com.agora.contracts.commerce.v1.CaptureApplicationReason.DUPLICATE_CAPTURE).build(),valid.toBuilder().setStateValue(99).build())){
             rpc.applied.put(capture.toString(),bad);retryCaptureJobs();recoverPayments();assertThat(jdbc.queryForObject("SELECT application_state FROM payment.captures WHERE id=?",String.class,capture)).isEqualTo("PROCESSING");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.refunds WHERE capture_id=?",Integer.class,capture)).isZero();
@@ -199,7 +200,7 @@ class PaymentApiTests {
         var mac=javax.crypto.Mac.getInstance("HmacSHA512");mac.init(new javax.crypto.spec.SecretKeySpec("synthetic-payment-test-secret-not-real".getBytes(java.nio.charset.StandardCharsets.UTF_8),"HmacSHA512"));f.put("vnp_SecureHash",HexFormat.of().formatHex(mac.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8))));return f;
     }
     @Test void signedProviderQueryCanRecoverMissingIpnUsingStoredCreationDate()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="15"+Long.toString(System.nanoTime()).substring(3,13);var requests=new java.util.concurrent.CopyOnWriteArrayList<com.agora.payment.adapter.outbound.VnpayApiCodec.Request>();
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="150000000001";var requests=new java.util.concurrent.CopyOnWriteArrayList<com.agora.payment.adapter.outbound.VnpayApiCodec.Request>();
         org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();var request=invocation.getArgument(0,com.agora.payment.adapter.outbound.VnpayApiCodec.Request.class);requests.add(request);return apiResponse(request,txn,"01","00");});
         queryDue();recoverProvider();assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);
         String original=jdbc.queryForObject("SELECT to_char(created_at AT TIME ZONE 'Asia/Ho_Chi_Minh','YYYYMMDDHH24MISS') FROM payment.attempts WHERE id=?",String.class,UUID.fromString(id));var request=requests.stream().filter(r->r.params().get("vnp_TxnRef").equals(id.replace("-",""))).findFirst().orElseThrow();assertThat(request.params().get("vnp_TransactionDate")).isEqualTo(original);
@@ -212,19 +213,19 @@ class PaymentApiTests {
         String id=attempt(session,order);assertThat(ipn(signed(id,txn,"00","00",7000000))).isEqualTo("00");UUID capture=captureId(id);rpc.applied.put(capture.toString(),com.agora.contracts.commerce.v1.CaptureApplicationResponse.newBuilder().setCaptureId(capture.toString()).setBuyerId(rpc.sessions.get(session).toString()).setOrderId(order).setState(com.agora.contracts.commerce.v1.CaptureApplicationState.CAPTURE_REFUND_REQUIRED).setReason(com.agora.contracts.commerce.v1.CaptureApplicationReason.ORDER_EXPIRED).build());recoverPayments();return capture;
     }
     @Test void signedRefundCompletionRequiresRefundTypeAndReservesExactlyCapturedMoney()throws Exception {
-        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"16"+Long.toString(System.nanoTime()).substring(3,13));org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),"987654321","02","00"));recoverProvider();
+        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"160000000001");org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),"987654321","02","00"));recoverProvider();
         assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("SUCCEEDED");assertThat(jdbc.queryForObject("SELECT amount_vnd FROM payment.ledger_entries WHERE capture_id=? AND kind='REFUND_SUCCEEDED'",Long.class,capture)).isEqualTo(70000);
     }
     @Test void originalPaySuccessCannotMasqueradeAsRefundCompletion()throws Exception {
-        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"17"+Long.toString(System.nanoTime()).substring(3,13));org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),"987654322","01","00"));recoverProvider();
+        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"170000000001");org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),"987654322","01","00"));recoverProvider();
         assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("NEEDS_RECONCILIATION");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id=? AND kind='REFUND_SUCCEEDED'",Integer.class,capture)).isZero();
     }
     @Test void lostRefundReplyKeepsReservationAndCannotSendFreshRefund()throws Exception {
-        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"18"+Long.toString(System.nanoTime()).substring(3,13));var calls=new java.util.concurrent.atomic.AtomicInteger();org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{if(invocation.getArgument(0,com.agora.payment.adapter.outbound.VnpayApiCodec.Request.class).params().get("vnp_Command").equals("refund"))calls.incrementAndGet();throw new IllegalStateException("simulated timeout");});recoverProvider();String request=jdbc.queryForObject("SELECT request_id::text FROM payment.refunds WHERE capture_id=?",String.class,capture);int first=calls.get();recoverProvider();assertThat(calls.get()).isEqualTo(first);assertThat(jdbc.queryForObject("SELECT request_id::text FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo(request);assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("NEEDS_RECONCILIATION");
+        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"180000000001");var calls=new java.util.concurrent.atomic.AtomicInteger();org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{if(invocation.getArgument(0,com.agora.payment.adapter.outbound.VnpayApiCodec.Request.class).params().get("vnp_Command").equals("refund"))calls.incrementAndGet();throw new IllegalStateException("simulated timeout");});recoverProvider();String request=jdbc.queryForObject("SELECT request_id::text FROM payment.refunds WHERE capture_id=?",String.class,capture);int first=calls.get();recoverProvider();assertThat(calls.get()).isEqualTo(first);assertThat(jdbc.queryForObject("SELECT request_id::text FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo(request);assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("NEEDS_RECONCILIATION");
     }
 
     @Test void acceptedRefundRemainsPendingUntilBoundRefundQueryConfirmsCompletion()throws Exception {
-        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"19"+Long.toString(System.nanoTime()).substring(3,13));
+        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"190000000001");
         org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{var request=invocation.getArgument(0,com.agora.payment.adapter.outbound.VnpayApiCodec.Request.class);return apiResponse(request,"333333333","02",request.params().get("vnp_Command").equals("refund")?"05":"00");});
         recoverProvider();assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("PENDING");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE capture_id=? AND kind='REFUND_SUCCEEDED'",Integer.class,capture)).isZero();
         jdbc.update("UPDATE payment.refunds SET next_run_at='-infinity',lease_until='-infinity' WHERE capture_id=?",capture);recoverProvider();assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("SUCCEEDED");
@@ -235,15 +236,15 @@ class PaymentApiTests {
         assertThat(call(session,"POST","/me/orders/"+order+"/payment-attempts","{}",UUID.randomUUID().toString(),true).statusCode()).isEqualTo(409);
     }
     @Test void contradictoryDeclinedAttemptCanStillReconcileCapturedMoney()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="20"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(id,"0","24","02",7000000))).isEqualTo("00");assertThat(ipn(signed(id,"0","07","07",7000000))).isEqualTo("00");
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="200000000001";assertThat(ipn(signed(id,"0","24","02",7000000))).isEqualTo("00");assertThat(ipn(signed(id,"0","07","07",7000000))).isEqualTo("00");
         org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),txn,"01","00"));queryDue();recoverProvider();assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);
     }
     @Test void contradictoryEvidenceReopensCompletedProviderQuery()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="21"+Long.toString(System.nanoTime()).substring(3,13);org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),txn,"01","00"));queryDue();recoverProvider();assertThat(jdbc.queryForObject("SELECT done FROM payment.provider_queries WHERE attempt_id=?",Boolean.class,UUID.fromString(id))).isTrue();
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="210000000001";org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->apiResponse(invocation.getArgument(0),txn,"01","00"));queryDue();recoverProvider();assertThat(jdbc.queryForObject("SELECT done FROM payment.provider_queries WHERE attempt_id=?",Boolean.class,UUID.fromString(id))).isTrue();
         assertThat(ipn(signed(id,txn,"00","00",1))).isEqualTo("04");assertThat(providerJobs.pendingQueries()).contains(UUID.fromString(id));
     }
     @Test void collisionIsVisibleToOriginalCaptureOwner()throws Exception {
-        String session=rpc.account(),first=attempt(session,rpc.order(session)),second=attempt(session,rpc.order(session)),txn="22"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");assertThat(ipn(signed(second,txn,"00","00",7000000))).isEqualTo("99");
+        String session=rpc.account(),first=attempt(session,rpc.order(session)),second=attempt(session,rpc.order(session)),txn="220000000001";assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");assertThat(ipn(signed(second,txn,"00","00",7000000))).isEqualTo("99");
         var result=json.readTree(call(session,"GET","/me/payment-attempts/"+first,null,null,false).body());assertThat(result.path("needsReconciliation").asBoolean()).isTrue();
     }
     @Test void unknownReturnUsesDocumentedBadRequestWithoutExposingReferences()throws Exception {
@@ -251,20 +252,20 @@ class PaymentApiTests {
     }
 
     @Test void newerContradictoryEvidenceKeepsValidMoneyAndSchedulesFollowup()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="23"+Long.toString(System.nanoTime()).substring(3,13);var calls=new java.util.concurrent.atomic.AtomicInteger();
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="230000000001";var calls=new java.util.concurrent.atomic.AtomicInteger();
         org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{var request=invocation.getArgument(0,com.agora.payment.adapter.outbound.VnpayApiCodec.Request.class);if(calls.incrementAndGet()==1)assertThat(ipn(signed(id,"0","07","07",7000000))).isEqualTo("00");return apiResponse(request,txn,"01","00");});
         queryDue();recoverProvider();assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);assertThat(providerJobs.pendingQueries()).contains(UUID.fromString(id));
         recoverProvider();assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);
     }
     @Test void concurrentIdenticalIpnsCommitOneCaptureAndOneLedger()throws Exception {
-        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="24"+Long.toString(System.nanoTime()).substring(3,13),query=signed(id,txn,"00","00",7000000);
+        String session=rpc.account(),id=attempt(session,rpc.order(session)),txn="240000000001",query=signed(id,txn,"00","00",7000000);
         try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()){
             var a=executor.submit(()->ipn(query));var b=executor.submit(()->ipn(query));assertThat(List.of(a.get(10,java.util.concurrent.TimeUnit.SECONDS),b.get(10,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder("00","02");
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.captures WHERE attempt_id=?",Integer.class,UUID.fromString(id))).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE kind='CAPTURE'",Integer.class)).isEqualTo(1);
     }
     @Test void refundCompletionSqlFailureCannotSendAnotherRefund()throws Exception {
-        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"25"+Long.toString(System.nanoTime()).substring(3,13));var calls=new java.util.concurrent.atomic.AtomicInteger();org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{calls.incrementAndGet();return apiResponse(invocation.getArgument(0),"987654325","02","00");});
+        String session=rpc.account();UUID capture=reserveRefund(session,rpc.order(session),"250000000001");var calls=new java.util.concurrent.atomic.AtomicInteger();org.mockito.Mockito.when(vnpayApi.send(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{calls.incrementAndGet();return apiResponse(invocation.getArgument(0),"987654325","02","00");});
         jdbc.execute("ALTER TABLE payment.ledger_entries ADD CONSTRAINT injected_refund_failure CHECK(kind!='REFUND_SUCCEEDED') NOT VALID");
         try{recoverProvider();assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("PENDING");assertThat(jdbc.queryForObject("SELECT count(*) FROM payment.ledger_entries WHERE kind='REFUND_SUCCEEDED'",Integer.class)).isZero();}finally{jdbc.execute("ALTER TABLE payment.ledger_entries DROP CONSTRAINT injected_refund_failure");}
         jdbc.update("UPDATE payment.refunds SET lease_until='-infinity',next_run_at='-infinity' WHERE capture_id=?",capture);recoverProvider();assertThat(calls.get()).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT state FROM payment.refunds WHERE capture_id=?",String.class,capture)).isEqualTo("NEEDS_RECONCILIATION");
@@ -297,7 +298,7 @@ class PaymentApiTests {
         assertThat(ipn(signed(id,"123","00","00",1))).isEqualTo("04");assertThat(providerJobs.pendingQueries()).contains(UUID.fromString(id));
     }
     @Test void transactionCollisionWakesBothOwnersWithoutLockingOriginalQuery()throws Exception {
-        String session=rpc.account(),first=attempt(session,rpc.order(session)),second=attempt(session,rpc.order(session)),txn="26"+Long.toString(System.nanoTime()).substring(3,13);assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");jdbc.update("UPDATE payment.provider_queries SET done=true");
+        String session=rpc.account(),first=attempt(session,rpc.order(session)),second=attempt(session,rpc.order(session)),txn="260000000001";assertThat(ipn(signed(first,txn,"00","00",7000000))).isEqualTo("00");jdbc.update("UPDATE payment.provider_queries SET done=true");
         try(var connection=Objects.requireNonNull(jdbc.getDataSource()).getConnection();var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()){
             connection.setAutoCommit(false);try(var statement=connection.prepareStatement("SELECT attempt_id FROM payment.provider_queries WHERE attempt_id=? FOR UPDATE")){statement.setObject(1,UUID.fromString(first));statement.executeQuery().close();}
             var collision=executor.submit(()->ipn(signed(second,txn,"00","00",7000000)));assertThat(collision.get(3,java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("99");connection.rollback();

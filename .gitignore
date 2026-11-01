@@ -16,3 +16,7 @@
 .settings/
 .DS_Store
 Thumbs.db
+
+# Local documentation and task plans
+/docs/
+/tasks/
