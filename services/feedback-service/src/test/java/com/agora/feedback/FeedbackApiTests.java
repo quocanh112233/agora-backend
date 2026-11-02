@@ -30,12 +30,12 @@ class FeedbackApiTests {
     @MockitoBean FeedbackAccess access;
     @Autowired com.agora.feedback.application.FeedbackStore store;
     @Autowired JdbcTemplate jdbc;@Autowired JsonMapper json;@LocalServerPort int port;
-    UUID buyer,other,order,sku,product,shop;
+    UUID buyer,seller,other,order,sku,product,shop;
     @BeforeEach void reset(){
-        jdbc.execute("TRUNCATE feedback.moderation_audit,feedback.reviews");resetMocks();buyer=UUID.randomUUID();other=UUID.randomUUID();order=UUID.randomUUID();sku=UUID.randomUUID();product=UUID.randomUUID();shop=UUID.randomUUID();
-        when(access.resolve(any(),any(),anyBoolean())).thenAnswer(call->{String session=call.getArgument(0);if(session==null)throw new FeedbackFailure(401,"UNAUTHENTICATED","Session required.");if((boolean)call.getArgument(2)&&!"csrf".equals(call.getArgument(1)))throw new FeedbackFailure(403,"FORBIDDEN","CSRF required.");return new Actor("other".equals(session)?other:buyer,"admin".equals(session));});
+        jdbc.execute("TRUNCATE feedback.moderation_audit,feedback.reviews");resetMocks();buyer=UUID.randomUUID();seller=UUID.randomUUID();other=UUID.randomUUID();order=UUID.randomUUID();sku=UUID.randomUUID();product=UUID.randomUUID();shop=UUID.randomUUID();
+        when(access.resolve(any(),any(),anyBoolean())).thenAnswer(call->{String session=call.getArgument(0);if(session==null)throw new FeedbackFailure(401,"UNAUTHENTICATED","Session required.");if((boolean)call.getArgument(2)&&!"csrf".equals(call.getArgument(1)))throw new FeedbackFailure(403,"FORBIDDEN","CSRF required.");return new Actor("seller".equals(session)?seller:session.startsWith("other")?other:buyer,"admin".equals(session),session.endsWith("seller")?"SELLER":"BUYER");});
         when(access.eligible(any(),any(),any())).thenAnswer(call->{if(!buyer.equals(call.getArgument(0))||!order.equals(call.getArgument(1))||!sku.equals(call.getArgument(2)))throw Feedback.missing();return new Line(buyer,order,sku,product,shop);});
-        when(access.shop(any())).thenAnswer(call->buyer.equals(call.getArgument(0))?shop:UUID.randomUUID());
+        when(access.shop(any())).thenAnswer(call->seller.equals(call.getArgument(0))?shop:UUID.randomUUID());
     }
     void resetMocks(){org.mockito.Mockito.reset(access);}
     String path(){return "/me/orders/"+order+"/items/"+sku+"/review";}
@@ -44,6 +44,13 @@ class FeedbackApiTests {
         return HttpClient.newHttpClient().send(b.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
     }
     JsonNode create()throws Exception{var r=call("buyer","POST",path(),"{\"rating\":5,\"content\":\" Fresh fish \"}",true);assertThat(r.statusCode()).as(r.body()).isEqualTo(201);return json.readTree(r.body());}
+    @Test void buyerAndSellerCannotUseEachOthersPrivateOperations() throws Exception {
+        assertThat(call("seller","POST",path(),"{\"rating\":5,\"content\":\"Fish\"}",true).statusCode()).isEqualTo(403);
+        String id=create().path("id").asString();
+        assertThat(call("buyer","PUT","/seller/reviews/"+id+"/reply","{\"content\":\"Reply\",\"expectedVersion\":0}",true).statusCode()).isEqualTo(403);
+        assertThat(call("buyer","GET","/seller/reviews",null,false).statusCode()).isEqualTo(403);
+        assertThat(call("seller","GET",path(),null,false).statusCode()).isEqualTo(403);
+    }
     @Test void createDerivesIdentityAndRecoversOwnedReview()throws Exception{var r=create();assertThat(r.path("content").asString()).isEqualTo("Fresh fish");assertThat(r.path("productId").asString()).isEqualTo(product.toString());var get=call("buyer","GET",path(),null,false);assertThat(get.statusCode()).isEqualTo(200);assertThat(json.readTree(get.body())).isEqualTo(r);assertThat(get.headers().firstValue("Cache-Control")).hasValue("no-store");}
     @Test void samePayloadReplayIsSafeAndDifferentPayloadConflicts()throws Exception{var first=create();var replay=call("buyer","POST",path(),"{\"rating\":5,\"content\":\"Fresh fish\"}",true);assertThat(replay.statusCode()).isEqualTo(200);assertThat(json.readTree(replay.body())).isEqualTo(first);assertThat(call("buyer","POST",path(),"{\"rating\":4,\"content\":\"Changed\"}",true).statusCode()).isEqualTo(409);assertThat(jdbc.queryForObject("SELECT count(*) FROM feedback.reviews",Integer.class)).isEqualTo(1);}
     @Test void concurrentCreateHasExactlyOneReview()throws Exception{
@@ -58,7 +65,7 @@ class FeedbackApiTests {
         for(int status:List.of(409,503)){doThrow(new FeedbackFailure(status,"REVIEW_UNAVAILABLE","Unavailable")).when(access).eligible(any(),any(),any());assertThat(call("buyer","POST",path(),"{\"rating\":5,\"content\":\"Fish\"}",true).statusCode()).isEqualTo(status);assertThat(jdbc.queryForObject("SELECT count(*) FROM feedback.reviews",Integer.class)).isZero();}
     }
     @Test void editsRequireOwnershipAndCurrentVersion()throws Exception{String id=create().path("id").asString();String body="{\"rating\":3,\"content\":\"Updated\",\"expectedVersion\":0}";assertThat(call("other","PATCH","/me/reviews/"+id,body,true).statusCode()).isEqualTo(404);assertThat(call("buyer","PATCH","/me/reviews/"+id,body,true).statusCode()).isEqualTo(200);assertThat(call("buyer","PATCH","/me/reviews/"+id,body,true).statusCode()).isEqualTo(409);var summaryResponse=call(null,"GET","/products/"+product+"/review-summary",null,false);assertThat(summaryResponse.statusCode()).as(summaryResponse.body()).isEqualTo(200);assertThat(json.readTree(summaryResponse.body()).path("averageRating").asDouble()).as(summaryResponse.body()).isEqualTo(3);}
-    @Test void sellerReplyRequiresMatchingActiveShop()throws Exception{String id=create().path("id").asString(),body="{\"content\":\"Thank you\",\"expectedVersion\":0}";assertThat(call("other","PUT","/seller/reviews/"+id+"/reply",body,true).statusCode()).isEqualTo(404);var reply=call("buyer","PUT","/seller/reviews/"+id+"/reply",body,true);assertThat(reply.statusCode()).isEqualTo(200);assertThat(reply.body()).contains("Thank you").doesNotContain("buyerId","orderId","skuId");assertThat(call("buyer","PUT","/seller/reviews/"+id+"/reply",body,true).statusCode()).isEqualTo(409);}
+    @Test void sellerReplyRequiresMatchingActiveShop()throws Exception{String id=create().path("id").asString(),body="{\"content\":\"Thank you\",\"expectedVersion\":0}";assertThat(call("other-seller","PUT","/seller/reviews/"+id+"/reply",body,true).statusCode()).isEqualTo(404);var reply=call("seller","PUT","/seller/reviews/"+id+"/reply",body,true);assertThat(reply.statusCode()).isEqualTo(200);assertThat(reply.body()).contains("Thank you").doesNotContain("buyerId","orderId","skuId");assertThat(call("seller","PUT","/seller/reviews/"+id+"/reply",body,true).statusCode()).isEqualTo(409);}
     @Test void moderationAuditedHiddenExcludedAndEditsDoNotUnhide()throws Exception{
         String id=create().path("id").asString(),body="{\"hidden\":true,\"reason\":\"Spam\",\"expectedVersion\":0}";
         assertThat(call("buyer","PUT","/admin/reviews/"+id+"/visibility",body,true).statusCode()).isEqualTo(403);
@@ -104,7 +111,7 @@ class FeedbackApiTests {
     }
     @Test void unicodeLimitsCountCharactersForReviewReplyAndModeration()throws Exception{
         var response=call("buyer","POST",path(),"{\"rating\":5,\"content\":\""+"😀".repeat(2000)+"\"}",true);assertThat(response.statusCode()).as(response.body()).isEqualTo(201);String id=json.readTree(response.body()).path("id").asString();
-        assertThat(call("buyer","PUT","/seller/reviews/"+id+"/reply","{\"content\":\""+"😀".repeat(2000)+"\",\"expectedVersion\":0}",true).statusCode()).isEqualTo(200);
+        assertThat(call("seller","PUT","/seller/reviews/"+id+"/reply","{\"content\":\""+"😀".repeat(2000)+"\",\"expectedVersion\":0}",true).statusCode()).isEqualTo(200);
         assertThat(call("admin","PUT","/admin/reviews/"+id+"/visibility","{\"hidden\":true,\"reason\":\""+"😀".repeat(500)+"\",\"expectedVersion\":1}",true).statusCode()).isEqualTo(200);
     }
     @Test void cursorTimestampsOutsideSupportedRangeAreValidationErrors()throws Exception{
@@ -112,20 +119,20 @@ class FeedbackApiTests {
     }
     @Test void managementReadsAreScopedAndDoNotExposeBuyerOrderOrSku()throws Exception{
         String id=create().path("id").asString();assertThat(call("admin","PUT","/admin/reviews/"+id+"/visibility","{\"hidden\":true,\"reason\":\"private reason\",\"expectedVersion\":0}",true).statusCode()).isEqualTo(200);
-        for(String scope:List.of("seller","admin")){String session=scope.equals("seller")?"buyer":"admin";var read=call(session,"GET","/"+scope+"/reviews/"+id,null,false);assertThat(read.statusCode()).as(read.body()).isEqualTo(200);assertThat(json.readTree(read.body()).path("hidden").asBoolean()).isTrue();assertThat(read.body()).doesNotContain("buyerId","orderId","skuId","private reason");var list=call(session,"GET","/"+scope+"/reviews",null,false);assertThat(list.statusCode()).as(list.body()).isEqualTo(200);assertThat(json.readTree(list.body()).path("items").size()).isEqualTo(1);}
-        assertThat(call("other","GET","/seller/reviews/"+id,null,false).statusCode()).isEqualTo(404);assertThat(call("buyer","GET","/admin/reviews/"+id,null,false).statusCode()).isEqualTo(403);assertThat(call(null,"GET","/seller/reviews",null,false).statusCode()).isEqualTo(401);
+        for(String scope:List.of("seller","admin")){String session=scope.equals("seller")?"seller":"admin";var read=call(session,"GET","/"+scope+"/reviews/"+id,null,false);assertThat(read.statusCode()).as(read.body()).isEqualTo(200);assertThat(json.readTree(read.body()).path("hidden").asBoolean()).isTrue();assertThat(read.body()).doesNotContain("buyerId","orderId","skuId","private reason");var list=call(session,"GET","/"+scope+"/reviews",null,false);assertThat(list.statusCode()).as(list.body()).isEqualTo(200);assertThat(json.readTree(list.body()).path("items").size()).isEqualTo(1);}
+        assertThat(call("other-seller","GET","/seller/reviews/"+id,null,false).statusCode()).isEqualTo(404);assertThat(call("buyer","GET","/admin/reviews/"+id,null,false).statusCode()).isEqualTo(403);assertThat(call(null,"GET","/seller/reviews",null,false).statusCode()).isEqualTo(401);
     }
     @Test void managementCursorBoundToActorScopeAndNotPublicCursor()throws Exception{
         for(int i=0;i<25;i++)jdbc.update("INSERT INTO feedback.reviews(id,buyer_id,order_id,sku_id,product_id,shop_id,rating,content) VALUES(?,?,?,?,?,?,?,?)",UUID.randomUUID(),buyer,UUID.randomUUID(),sku,product,shop,4,"Fish");
         var first=json.readTree(call("admin","GET","/admin/reviews",null,false).body());assertThat(first.path("items").size()).isEqualTo(20);String cursor=first.path("nextCursor").asString();var next=json.readTree(call("admin","GET","/admin/reviews?cursor="+cursor,null,false).body());assertThat(next.path("items").size()).isEqualTo(5);
-        assertThat(call("buyer","GET","/seller/reviews?cursor="+cursor,null,false).statusCode()).isEqualTo(422);assertThat(call(null,"GET","/products/"+product+"/reviews?cursor="+cursor,null,false).statusCode()).isEqualTo(422);
-        var seller=json.readTree(call("buyer","GET","/seller/reviews",null,false).body());assertThat(seller.path("items").size()).isEqualTo(20);String sellerCursor=seller.path("nextCursor").asString();assertThat(call("other","GET","/seller/reviews?cursor="+sellerCursor,null,false).statusCode()).isEqualTo(422);
+        assertThat(call("seller","GET","/seller/reviews?cursor="+cursor,null,false).statusCode()).isEqualTo(422);assertThat(call(null,"GET","/products/"+product+"/reviews?cursor="+cursor,null,false).statusCode()).isEqualTo(422);
+        var seller=json.readTree(call("seller","GET","/seller/reviews",null,false).body());assertThat(seller.path("items").size()).isEqualTo(20);String sellerCursor=seller.path("nextCursor").asString();assertThat(call("other-seller","GET","/seller/reviews?cursor="+sellerCursor,null,false).statusCode()).isEqualTo(422);
     }
     @Test void managementRecoveryReadsCurrentVersionAfterLostModerationResponse()throws Exception{
         String id=create().path("id").asString(),payload="{\"hidden\":true,\"reason\":\"Spam\",\"expectedVersion\":0}";assertThat(call("admin","PUT","/admin/reviews/"+id+"/visibility",payload,true).statusCode()).isEqualTo(200);assertThat(call("admin","PUT","/admin/reviews/"+id+"/visibility",payload,true).statusCode()).isEqualTo(409);var read=call("admin","GET","/admin/reviews/"+id,null,false);assertThat(read.statusCode()).isEqualTo(200);assertThat(json.readTree(read.body()).path("version").asLong()).isEqualTo(1);
     }
     @Test void managementFailsClosedOnMerchantOutageAndRejectsUnknownQuery()throws Exception{
-        doThrow(Feedback.unavailable("MERCHANT")).when(access).shop(any());assertThat(call("buyer","GET","/seller/reviews",null,false).statusCode()).isEqualTo(503);assertThat(call("admin","GET","/admin/reviews?hidden=true",null,false).statusCode()).isEqualTo(422);
+        doThrow(Feedback.unavailable("MERCHANT")).when(access).shop(any());assertThat(call("seller","GET","/seller/reviews",null,false).statusCode()).isEqualTo(503);assertThat(call("admin","GET","/admin/reviews?hidden=true",null,false).statusCode()).isEqualTo(422);
     }
     @Test void managementPaginationKeepsShopPrivacyAndTiedTimestampOrder()throws Exception{
         var expected=new HashSet<String>();
@@ -133,7 +140,7 @@ class FeedbackApiTests {
         UUID foreignId=UUID.randomUUID();jdbc.update("INSERT INTO feedback.reviews(id,buyer_id,order_id,sku_id,product_id,shop_id,rating,content) VALUES(?,?,?,?,?,?,?,?)",foreignId,other,UUID.randomUUID(),sku,product,UUID.randomUUID(),3,"Other shop");
         var fields=Set.of("id","productId","shopId","rating","content","reply","hidden","version","createdAt","updatedAt");
         for(String scope:List.of("seller","admin")){
-            String session=scope.equals("seller")?"buyer":"admin",cursor=null;var ids=new HashSet<String>();int pages=0;
+            String session=scope.equals("seller")?"seller":"admin",cursor=null;var ids=new HashSet<String>();int pages=0;
             do{var response=call(session,"GET","/"+scope+"/reviews"+(cursor==null?"":"?cursor="+cursor),null,false);assertThat(response.statusCode()).as(response.body()).isEqualTo(200);assertThat(response.headers().firstValue("Cache-Control")).hasValue("no-store");var page=json.readTree(response.body());assertThat(page.path("items").size()).isBetween(1,20);
                 for(var item:page.path("items")){assertThat(item.propertyNames()).containsExactlyInAnyOrderElementsOf(fields);assertThat(ids.add(item.path("id").asString())).isTrue();if(scope.equals("seller"))assertThat(item.path("shopId").asString()).isEqualTo(shop.toString());}
                 cursor=page.path("nextCursor").isNull()?null:page.path("nextCursor").asString();assertThat(++pages).isLessThanOrEqualTo(2);
@@ -144,15 +151,15 @@ class FeedbackApiTests {
     @Test void managementReadsRecheckCurrentRoleAndActiveShop()throws Exception{
         String id=create().path("id").asString();
         assertThat(call("admin","GET","/admin/reviews/"+id,null,false).statusCode()).isEqualTo(200);
-        doReturn(new Actor(buyer,false)).when(access).resolve(eq("admin"),any(),eq(false));
+        doReturn(new Actor(buyer,false,"BUYER")).when(access).resolve(eq("admin"),any(),eq(false));
         for(String suffix:List.of("","/"+id))assertThat(call("admin","GET","/admin/reviews"+suffix,null,false).statusCode()).isEqualTo(403);
-        assertThat(call("buyer","GET","/seller/reviews/"+id,null,false).statusCode()).isEqualTo(200);
-        doThrow(new FeedbackFailure(403,"FORBIDDEN","Active shop required.")).when(access).shop(buyer);
-        for(String suffix:List.of("","/"+id))assertThat(call("buyer","GET","/seller/reviews"+suffix,null,false).statusCode()).isEqualTo(403);
+        assertThat(call("seller","GET","/seller/reviews/"+id,null,false).statusCode()).isEqualTo(200);
+        doThrow(new FeedbackFailure(403,"FORBIDDEN","Active shop required.")).when(access).shop(seller);
+        for(String suffix:List.of("","/"+id))assertThat(call("seller","GET","/seller/reviews"+suffix,null,false).statusCode()).isEqualTo(403);
     }
     @Test void managementRejectsMalformedOutOfRangeAndPublicCursors()throws Exception{
         for(String scope:List.of("seller","admin")){
-            String session=scope.equals("seller")?"buyer":"admin",binding=scope.equals("seller")?"seller-"+shop:"admin";
+            String session=scope.equals("seller")?"seller":"admin",binding=scope.equals("seller")?"seller-"+shop:"admin";
             var bad=new ArrayList<>(List.of("bad","x".repeat(257),""));
             for(String micros:List.of("-1","253402300800000000",Long.toString(Long.MAX_VALUE),"not-a-number"))bad.add(Base64.getUrlEncoder().withoutPadding().encodeToString((binding+":"+micros+":"+UUID.randomUUID()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             bad.add(Base64.getUrlEncoder().withoutPadding().encodeToString((product+":0:"+UUID.randomUUID()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));

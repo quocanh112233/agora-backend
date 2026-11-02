@@ -25,7 +25,7 @@ public class GrpcFeedbackAccess implements FeedbackAccess {
     @Override public Actor resolve(String session,String csrf,boolean unsafe){
         if(session==null||session.isBlank())throw new FeedbackFailure(401,"UNAUTHENTICATED","Session is required.");
         if(session.length()>256||csrf!=null&&csrf.length()>256)throw new FeedbackFailure(401,"UNAUTHENTICATED","Invalid session.");
-        try{var result=identity.withDeadlineAfter(2,TimeUnit.SECONDS).resolveSession(ResolveSessionRequest.newBuilder().setSessionId(session).setCsrfToken(csrf==null?"":csrf).setRequireCsrf(unsafe).build());return new Actor(uuid(result.getAccountId()),result.getRolesList().contains("ADMIN"));}
+        try{var result=identity.withDeadlineAfter(2,TimeUnit.SECONDS).resolveSession(ResolveSessionRequest.newBuilder().setSessionId(session).setCsrfToken(csrf==null?"":csrf).setRequireCsrf(unsafe).build());if(result.getAccountType()==AccountType.ACCOUNT_TYPE_UNSPECIFIED||result.getAccountType()==AccountType.UNRECOGNIZED)throw Feedback.unavailable("IDENTITY");return new Actor(uuid(result.getAccountId()),result.getRolesList().contains("ADMIN"),result.getAccountType().name());}
         catch(StatusRuntimeException e){throw switch(e.getStatus().getCode()){case UNAUTHENTICATED->new FeedbackFailure(401,"UNAUTHENTICATED","Session is invalid.");case PERMISSION_DENIED->new FeedbackFailure(403,"FORBIDDEN","Request is not permitted.");default->Feedback.unavailable("IDENTITY");};}
         catch(IllegalArgumentException e){throw Feedback.unavailable("IDENTITY");}
     }

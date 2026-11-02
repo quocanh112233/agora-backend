@@ -36,6 +36,10 @@ public class GrpcSellerAccess implements SellerAccess {
         try {
             var response = identity.withDeadlineAfter(2, TimeUnit.SECONDS).resolveSession(ResolveSessionRequest.newBuilder()
                     .setSessionId(sessionId).setCsrfToken(csrfToken == null ? "" : csrfToken).setRequireCsrf(requireCsrf).build());
+            if (response.getAccountType() == com.agora.contracts.identity.v1.AccountType.ACCOUNT_TYPE_UNSPECIFIED
+                    || response.getAccountType() == com.agora.contracts.identity.v1.AccountType.UNRECOGNIZED) throw unavailable("IDENTITY");
+            if (response.getAccountType() != com.agora.contracts.identity.v1.AccountType.SELLER)
+                throw new CatalogFailure(403, "FORBIDDEN", "A SELLER account is required.");
             account = uuid(response.getAccountId());
         } catch (StatusRuntimeException e) {
             throw switch (e.getStatus().getCode()) {

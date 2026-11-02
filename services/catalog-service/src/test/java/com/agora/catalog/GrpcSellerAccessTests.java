@@ -16,6 +16,14 @@ class GrpcSellerAccessTests {
         rpc = new RpcFixture(); client = new GrpcSellerAccess(rpc.identityChannel, rpc.merchantChannel, RpcFixture.TOKEN);
     }
     @AfterEach void close() throws Exception { rpc.close(); }
+    @Test void buyerOrUnknownTypeNeverReachesMerchantSellerAuthorization() {
+        String session = rpc.seller();
+        rpc.accountType.set(com.agora.contracts.identity.v1.AccountType.BUYER);
+        assertFailure(() -> client.resolve(session, null, false), 403);
+        rpc.accountType.set(com.agora.contracts.identity.v1.AccountType.ACCOUNT_TYPE_UNSPECIFIED);
+        assertFailure(() -> client.resolve(session, null, false), 503);
+        assertThat(rpc.merchantCalls.get()).isZero();
+    }
     @Test void forwardsRawCookieMaskedCsrfCredentialAndCurrentAccountToSeparateServices() {
         String session = rpc.seller();
         var seller = client.resolve(session, "masked-csrf-fixture", true);

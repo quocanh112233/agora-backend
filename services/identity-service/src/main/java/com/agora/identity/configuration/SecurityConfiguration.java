@@ -51,8 +51,10 @@ public class SecurityConfiguration {
                                 failure instanceof org.springframework.security.web.csrf.CsrfException ? "CSRF_INVALID" : "FORBIDDEN",
                                 "Yêu cầu không được phép.")))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/registrations", "/api/v1/auth/sessions", "/actuator/health/**").permitAll()
+                        .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/registrations", "/api/v1/auth/seller-registrations", "/api/v1/auth/sessions", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/v1/me", "/api/v1/auth/sessions/current").authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/admin/accounts", "/api/v1/admin/accounts/**").authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/v1/admin/accounts/*/status").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }

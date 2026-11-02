@@ -4,13 +4,24 @@ Backend cho sàn B2B2C nông sản và thủy hải sản, xây dựng làm port
 
 ## Chức năng
 
-- Đăng ký, đăng nhập bằng session, CSRF và phân quyền USER/ADMIN.
+- Đăng ký BUYER và SELLER riêng, email duy nhất toàn hệ thống; đăng nhập bằng session, CSRF và quyền quản trị ADMIN.
 - Tạo cửa hàng, gửi duyệt, phê duyệt hoặc từ chối hồ sơ.
+- Admin tìm kiếm/lọc/phân trang tài khoản, xem chi tiết và cửa hàng liên kết.
 - Quản lý sản phẩm, SKU đóng gói, ảnh Cloudinary và công bố sản phẩm.
 - Quản lý lô hàng, hạn dùng, giữ tồn FEFO và thời hạn giữ hàng.
 - Giỏ hàng, checkout từng cửa hàng và lưu snapshot đơn hàng.
 - Tạo payment attempt VNPAY sandbox, khôi phục yêu cầu và xác minh Return.
 - Đánh giá dòng đơn PAID, phản hồi của cửa hàng và kiểm duyệt đánh giá.
+
+## Tài khoản mua và bán
+
+Một account có một loại cố định: BUYER mua hàng/đánh giá đơn, SELLER mở shop/quản lý hàng/phản hồi đánh giá. Muốn vừa mua vừa bán phải đăng ký hai account bằng hai email khác nhau. Quyền USER/ADMIN độc lập với loại tài khoản; ADMIN không tự vượt kiểm tra loại hoặc quyền sở hữu ở API kinh doanh.
+
+Đăng ký người mua: `POST /api/v1/auth/registrations`; người bán: `POST /api/v1/auth/seller-registrations`. Backend ấn định loại theo endpoint, không nhận loại/quyền do client tự cấp. Đăng ký không tự đăng nhập hoặc tạo shop. SELLER đăng nhập rồi gửi hồ sơ shop; admin duyệt shop mới được bán. Cửa hàng chỉ đủ điều kiện công khai/nhận giao dịch mới khi shop ACTIVE và chủ shop là SELLER ACTIVE.
+
+Migration V4 bảo toàn account cũ với `account_type` chưa phân loại; account này chưa được đăng nhập. Sau backup và kiểm kê ownership ở các service, operator dùng [classify-legacy-account.sql](scripts/classify-legacy-account.sql) trên đúng database Identity, cung cấp UUID/loại/version đã xác minh. Script chỉ phân loại account chưa có loại và thu hồi phiên; không chuyển đổi BUYER thành SELLER. Account cũ có cả lịch sử mua và shop cần kế hoạch tách dữ liệu riêng, không reset volume hoặc sao chép mật khẩu. Khi nâng cấp, triển khai đồng bộ các service/client và đăng nhập lại.
+
+Không có tài khoản hoặc mật khẩu ADMIN mặc định. [grant-local-admin.sql](scripts/grant-local-admin.sql) chỉ cấp quyền thủ công cho account ACTIVE được chọn trên đúng môi trường. Admin có thể tìm/lọc tài khoản, xem chi tiết và shop liên kết, khóa/mở tài khoản với lý do và xem lịch sử. Đổi trạng thái dùng version CAS, ghi audit và xóa phiên trong cùng transaction; phiên cũ không dùng lại được sau mở khóa. Mọi tài khoản ADMIN và tự khóa đều được bảo vệ. Shop đã duyệt có thể đình chỉ/mở lại độc lập; mở lại yêu cầu chủ shop là SELLER ACTIVE. Không tự hủy đơn hoặc hoàn tiền khi khóa. Migration V5 thêm audit Identity, Merchant V3 bổ sung metadata audit cho status; các migration cũ giữ nguyên. Session thiếu version stamp sau rollout phải đăng nhập lại. RPC ResolveSession chỉ bổ sung display_name để ghi audit Merchant, không dùng tên để phân quyền.
 
 ## Công nghệ và service
 

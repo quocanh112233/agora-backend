@@ -42,6 +42,7 @@ class MerchantGrpcTests {
     static final String TOKEN = "merchant-test-internal-token-at-least-32-characters";
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             System.getProperty("agora.test.postgres-image", "postgres:16.15-alpine"));
+    @org.springframework.test.context.bean.override.mockito.MockitoBean com.agora.merchant.application.IdentityPort identity;
     @Autowired JdbcTemplate jdbc;
     @Autowired JdbcMerchantStore store;
     @Autowired ShopService shops;
@@ -54,6 +55,8 @@ class MerchantGrpcTests {
         properties.add("spring.datasource.password", POSTGRES::getPassword);
     }
     @BeforeEach void start() {
+        org.mockito.Mockito.when(identity.activeSellers(org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(call -> { java.util.List<UUID> ids = call.getArgument(0); return java.util.Set.copyOf(ids); });
         server.start();
         channel = ManagedChannelBuilder.forAddress("127.0.0.1", server.port()).usePlaintext().disableRetry().build();
     }
@@ -74,6 +77,14 @@ class MerchantGrpcTests {
         Metadata metadata = new Metadata();
         metadata.put(Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER), token);
         return stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+    }
+    @Test void activeShopRequiresFreshEligibleSellerOwner() {
+        var current = shop("ACTIVE");
+        org.mockito.Mockito.when(identity.activeSellers(java.util.List.of(current.ownerAccountId()))).thenReturn(java.util.Set.of());
+        denied(current.ownerAccountId().toString(), Status.Code.PERMISSION_DENIED);
+        org.mockito.Mockito.when(identity.activeSellers(java.util.List.of(current.ownerAccountId())))
+                .thenThrow(new com.agora.merchant.domain.MerchantFailure(503, "IDENTITY_UNAVAILABLE", "Unavailable"));
+        denied(current.ownerAccountId().toString(), Status.Code.UNAVAILABLE);
     }
     ResolveActiveShopRequest account(String id) { return ResolveActiveShopRequest.newBuilder().setAccountId(id).build(); }
     void denied(String id, Status.Code code) {
@@ -153,13 +164,14 @@ class MerchantGrpcTests {
     @Test void internalCredentialRequires32To256UrlSafeCharacters() {
         for (String token : new String[]{null, "a".repeat(31), "a".repeat(257), "a".repeat(32) + "+",
                 "a".repeat(32) + "/", "a".repeat(32) + "=", "a".repeat(32) + " ", "a".repeat(32) + "é"})
-            assertThatThrownBy(() -> new MerchantGrpcServer(shops, 0, token)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(new MerchantGrpcServer(shops, 0, "a".repeat(32))).isNotNull();
-        assertThat(new MerchantGrpcServer(shops, 0, "A_0-".repeat(64))).isNotNull();
+            assertThatThrownBy(() -> new MerchantGrpcServer(shops, identity, 0, token)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new MerchantGrpcServer(shops, identity, 0, "a".repeat(32))).isNotNull();
+        assertThat(new MerchantGrpcServer(shops, identity, 0, "A_0-".repeat(64))).isNotNull();
     }
     @Test void listenerRequiresExplicitEnablementAndSpringStopsIt() {
         var runner = new ApplicationContextRunner().withUserConfiguration(MerchantGrpcServer.class)
-                .withBean(ShopService.class, () -> shops);
+                .withBean(ShopService.class, () -> shops)
+                .withBean(com.agora.merchant.application.IdentityPort.class, () -> identity);
         runner.run(context -> assertThat(context).doesNotHaveBean(MerchantGrpcServer.class));
         runner.withPropertyValues("agora.grpc.enabled=false").run(context -> assertThat(context).doesNotHaveBean(MerchantGrpcServer.class));
         var started = new java.util.concurrent.atomic.AtomicReference<MerchantGrpcServer>();

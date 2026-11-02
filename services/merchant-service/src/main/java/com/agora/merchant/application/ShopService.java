@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ShopService {
     public record Create(String name, String description, String contactPhone, Address pickupAddress) {}
-    public record PublicShop(UUID id, String name) {}
+    public record PublicShop(UUID id, String name, UUID ownerAccountId) {}
     private final MerchantStore store;
     public ShopService(MerchantStore store) { this.store = store; }
 
@@ -27,7 +27,7 @@ public class ShopService {
                     String name = shop.name();
                     if (name == null || name.codePointCount(0, name.length()) > 120)
                         throw new IllegalStateException("Invalid public shop name.");
-                    return new PublicShop(shop.id(), name);
+                    return new PublicShop(shop.id(), name, shop.ownerAccountId());
                 }).filter(shop -> !shop.name().isBlank()).toList();
     }
     private Shop owned(UUID owner, UUID shopId) {

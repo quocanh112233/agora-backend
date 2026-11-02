@@ -21,7 +21,10 @@ public class GrpcIdentityAccess implements IdentityAccess {
     @Override public UUID resolve(String session,String csrf,boolean requireCsrf){
         if(session==null||session.isBlank())throw new PaymentFailure(401,"UNAUTHENTICATED","Session is required.");
         try{
-            String account=stub.withDeadlineAfter(2,TimeUnit.SECONDS).resolveSession(ResolveSessionRequest.newBuilder().setSessionId(session).setCsrfToken(csrf==null?"":csrf).setRequireCsrf(requireCsrf).build()).getAccountId();
+            var response=stub.withDeadlineAfter(2,TimeUnit.SECONDS).resolveSession(ResolveSessionRequest.newBuilder().setSessionId(session).setCsrfToken(csrf==null?"":csrf).setRequireCsrf(requireCsrf).build());
+            if(response.getAccountType()==AccountType.ACCOUNT_TYPE_UNSPECIFIED || response.getAccountType()==AccountType.UNRECOGNIZED) throw unavailable();
+            if(response.getAccountType()!=AccountType.BUYER) throw new PaymentFailure(403,"FORBIDDEN","A BUYER account is required.");
+            String account=response.getAccountId();
             UUID id=UUID.fromString(account);if(!id.toString().equalsIgnoreCase(account))throw new IllegalArgumentException();return id;
         }catch(StatusRuntimeException e){
             throw switch(e.getStatus().getCode()){

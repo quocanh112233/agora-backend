@@ -7,9 +7,11 @@ option java_multiple_files = true;
 // Internal only. x-agora-internal-token authenticates the caller.
 // UNAUTHENTICATED: absent, expired, or suspended session.
 // PERMISSION_DENIED: invalid CSRF or missing/invalid internal credential.
-// UNAVAILABLE: dependency failure. No PII or credential material is returned.
+// UNAVAILABLE: dependency failure. Only account identity and audit display name; no credentials.
 service SessionIdentity {
   rpc ResolveSession(ResolveSessionRequest) returns (ResolveSessionResponse);
+  // 1–5 distinct canonical UUIDs. Unknown/unclassified accounts are omitted.
+  rpc GetAccountStates(GetAccountStatesRequest) returns (GetAccountStatesResponse);
 }
 
 message ResolveSessionRequest {
@@ -21,4 +23,22 @@ message ResolveSessionRequest {
 message ResolveSessionResponse {
   string account_id = 1;
   repeated string roles = 2;
+  AccountType account_type = 3;
+  // Snapshot for private moderation audit, never a source of authorization.
+  string display_name = 4;
+}
+
+// Zero/unknown is never an authorization grant. USER/ADMIN roles are independent.
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;
+  BUYER = 1;
+  SELLER = 2;
+}
+
+message GetAccountStatesRequest { repeated string account_ids = 1; }
+message GetAccountStatesResponse { repeated AccountState accounts = 1; }
+message AccountState {
+  string account_id = 1;
+  AccountType account_type = 2;
+  bool is_active = 3;
 }

@@ -11,6 +11,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AuthAttemptFilterTests {
     @Test
+    void sellerRegistrationSharesTheAuthenticationAttemptBudget() throws Exception {
+        var filter = new AuthAttemptFilter(1, Duration.ofMinutes(15), 100, new ApiErrors(JsonMapper.builder().build()));
+        for (String path : java.util.List.of("/api/v1/auth/registrations", "/api/v1/auth/seller-registrations")) {
+            var request = new MockHttpServletRequest("POST", path);
+            request.setRemoteAddr("127.0.0.1");
+            var response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (req, res) -> ((jakarta.servlet.http.HttpServletResponse) res).setStatus(204));
+            assertThat(response.getStatus()).isEqualTo(path.endsWith("/seller-registrations") ? 429 : 204);
+        }
+    }
+
+    @Test
     void returns429WithRetryAfterAndDoesNotTrustForwardedAddress() throws Exception {
         var filter = new AuthAttemptFilter(2, Duration.ofMinutes(15), 100, new ApiErrors(JsonMapper.builder().build()));
         for (int attempt = 0; attempt < 3; attempt++) {

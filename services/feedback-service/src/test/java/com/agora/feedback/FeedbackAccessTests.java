@@ -19,7 +19,7 @@ class FeedbackAccessTests {
     AtomicReference<Status> identityFailure=new AtomicReference<>(),commerceFailure=new AtomicReference<>(),merchantFailure=new AtomicReference<>();
     ResolveSessionResponse identity;ReviewEligibility eligible;ResolveActiveShopResponse merchant;ResolveSessionRequest lastIdentity;ReviewLineReference lastLine;
     @BeforeEach void start()throws Exception{
-        identity=ResolveSessionResponse.newBuilder().setAccountId(buyer.toString()).addRoles("USER").build();eligible=ReviewEligibility.newBuilder().setBuyerId(buyer.toString()).setOrderId(order.toString()).setSkuId(sku.toString()).setProductId(product.toString()).setShopId(shop.toString()).build();merchant=ResolveActiveShopResponse.newBuilder().setShopId(shop.toString()).build();
+        identity=ResolveSessionResponse.newBuilder().setAccountId(buyer.toString()).addRoles("USER").setAccountType(AccountType.BUYER).build();eligible=ReviewEligibility.newBuilder().setBuyerId(buyer.toString()).setOrderId(order.toString()).setSkuId(sku.toString()).setProductId(product.toString()).setShopId(shop.toString()).build();merchant=ResolveActiveShopResponse.newBuilder().setShopId(shop.toString()).build();
         String name=InProcessServerBuilder.generateName();server=InProcessServerBuilder.forName(name).directExecutor().intercept(new ServerInterceptor(){public <Q,R>ServerCall.Listener<Q> interceptCall(ServerCall<Q,R> c,Metadata h,ServerCallHandler<Q,R> next){assertThat(h.get(Metadata.Key.of("x-agora-internal-token",Metadata.ASCII_STRING_MARSHALLER))).isEqualTo(TOKEN);return next.startCall(c,h);}})
             .addService(new SessionIdentityGrpc.SessionIdentityImplBase(){@Override public void resolveSession(ResolveSessionRequest r,StreamObserver<ResolveSessionResponse> out){lastIdentity=r;reply(out,identity,identityFailure.get());}})
             .addService(new CommercePaymentsGrpc.CommercePaymentsImplBase(){@Override public void getReviewEligibility(ReviewLineReference r,StreamObserver<ReviewEligibility> out){lastLine=r;reply(out,eligible,commerceFailure.get());}})
@@ -31,6 +31,12 @@ class FeedbackAccessTests {
     void fails(Runnable call,int status){assertThatThrownBy(call::run).isInstanceOfSatisfying(FeedbackFailure.class,e->assertThat(e.status()).isEqualTo(status));}
     @Test void forwardsSessionCsrfAndChecksCurrentAdminRole(){assertThat(access.resolve("session","csrf",true).admin()).isFalse();assertThat(lastIdentity.getRequireCsrf()).isTrue();assertThat(lastIdentity.getCsrfToken()).isEqualTo("csrf");identity=identity.toBuilder().addRoles("ADMIN").build();assertThat(access.resolve("session",null,false).admin()).isTrue();assertThat(lastIdentity.getRequireCsrf()).isFalse();}
     @Test void missingSessionAndIdentityFailuresFailClosed(){fails(()->access.resolve(null,null,false),401);for(var entry:Map.of(Status.UNAUTHENTICATED,401,Status.PERMISSION_DENIED,403,Status.UNAVAILABLE,503,Status.DEADLINE_EXCEEDED,503).entrySet()){identityFailure.set(entry.getKey());fails(()->access.resolve("session","csrf",true),entry.getValue());}}
+    @Test void unspecifiedOrUnknownTypeNeverGrantsScopeEvenWithAdminRole(){
+        for(int type:java.util.List.of(0,999)){
+            identity=identity.toBuilder().setAccountTypeValue(type).addRoles("ADMIN").build();
+            fails(()->access.resolve("session",null,false),503);
+        }
+    }
     @Test void malformedIdentityNeverGrantsAdmin(){identity=identity.toBuilder().setAccountId("bad").addRoles("ADMIN").build();fails(()->access.resolve("session","csrf",true),503);}
     @Test void resolvesLineWithExactBuyerOrderAndSku(){var line=access.eligible(buyer,order,sku);assertThat(line.productId()).isEqualTo(product);assertThat(line.shopId()).isEqualTo(shop);assertThat(lastLine.getBuyerId()).isEqualTo(buyer.toString());assertThat(lastLine.getOrderId()).isEqualTo(order.toString());assertThat(lastLine.getSkuId()).isEqualTo(sku.toString());}
     @Test void commerceMismatchAndMalformedSnapshotFailClosed(){var valid=eligible;for(var bad:List.of(valid.toBuilder().setBuyerId(UUID.randomUUID().toString()).build(),valid.toBuilder().setOrderId(UUID.randomUUID().toString()).build(),valid.toBuilder().setSkuId(UUID.randomUUID().toString()).build(),valid.toBuilder().setProductId("bad").build(),valid.toBuilder().setShopId("bad").build())){eligible=bad;fails(()->access.eligible(buyer,order,sku),503);}}

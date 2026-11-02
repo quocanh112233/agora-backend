@@ -23,18 +23,24 @@ class GrpcIdentityTests {
     AtomicReference<Status> failure = new AtomicReference<>();
     AtomicReference<String> account = new AtomicReference<>(UUID.randomUUID().toString());
     AtomicReference<Set<String>> roles = new AtomicReference<>(Set.of("USER"));
+    AtomicReference<GetAccountStatesResponse> batch = new AtomicReference<>(GetAccountStatesResponse.getDefaultInstance());
+    AtomicReference<AccountType> accountType = new AtomicReference<>(AccountType.SELLER);
     AtomicLong deadlineMillis = new AtomicLong();
     AtomicInteger calls = new AtomicInteger();
 
     @BeforeEach void start() throws Exception {
         String name = InProcessServerBuilder.generateName();
         var service = new SessionIdentityGrpc.SessionIdentityImplBase() {
+            @Override public void getAccountStates(GetAccountStatesRequest request, StreamObserver<GetAccountStatesResponse> out) {
+                if (failure.get() != null) { out.onError(failure.get().asRuntimeException()); return; }
+                out.onNext(batch.get()); out.onCompleted();
+            }
             @Override public void resolveSession(ResolveSessionRequest request, StreamObserver<ResolveSessionResponse> out) {
                 calls.incrementAndGet(); received.set(request);
                 deadlineMillis.set(Context.current().getDeadline().timeRemaining(TimeUnit.MILLISECONDS));
                 if (failure.get() != null) { out.onError(failure.get().asRuntimeException()); return; }
                 if ("hang".equals(request.getSessionId())) return;
-                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(account.get()).addAllRoles(roles.get()).build());
+                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(account.get()).addAllRoles(roles.get()).setAccountType(accountType.get()).build());
                 out.onCompleted();
             }
         };
@@ -50,6 +56,30 @@ class GrpcIdentityTests {
     @AfterEach void stop() throws Exception {
         channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+    }
+    @Test void rejectsUnknownSessionTypeAndFiltersBatchToActiveSellers() {
+        var client = new GrpcIdentity(channel, TOKEN);
+        accountType.set(AccountType.ACCOUNT_TYPE_UNSPECIFIED);
+        assertThatThrownBy(() -> client.resolve("session", null, false)).isInstanceOfSatisfying(MerchantFailure.class,
+                e -> assertThat(e.status()).isEqualTo(503));
+        UUID seller = UUID.randomUUID(), buyer = UUID.randomUUID(), suspended = UUID.randomUUID();
+        var state = AccountState.newBuilder().setAccountId(seller.toString()).setAccountType(AccountType.SELLER).setIsActive(true).build();
+        batch.set(GetAccountStatesResponse.newBuilder().addAccounts(state)
+                .addAccounts(state.toBuilder().setAccountId(buyer.toString()).setAccountType(AccountType.BUYER))
+                .addAccounts(state.toBuilder().setAccountId(suspended.toString()).setIsActive(false)).build());
+        assertThat(client.activeSellers(java.util.List.of(seller, buyer, suspended))).containsExactly(seller);
+        for (var invalid : java.util.List.of(
+                GetAccountStatesResponse.newBuilder().addAccounts(state).addAccounts(state).build(),
+                GetAccountStatesResponse.newBuilder().addAccounts(state.toBuilder().setAccountId(UUID.randomUUID().toString())).build(),
+                GetAccountStatesResponse.newBuilder().addAccounts(state.toBuilder().setAccountTypeValue(999)).build())) {
+            batch.set(invalid);
+            assertThatThrownBy(() -> client.activeSellers(java.util.List.of(seller)))
+                    .isInstanceOfSatisfying(MerchantFailure.class, e -> assertThat(e.status()).isEqualTo(503));
+        }
+        assertThat(client.activeSellers(java.util.List.of())).isEmpty();
+        failure.set(Status.UNAVAILABLE);
+        assertThatThrownBy(() -> client.activeSellers(java.util.List.of(seller)))
+                .isInstanceOfSatisfying(MerchantFailure.class, e -> assertThat(e.status()).isEqualTo(503));
     }
     @Test void forwardsRawCookieMaskedCsrfInternalCredentialAndTwoSecondDeadline() {
         var client = new GrpcIdentity(channel, TOKEN);
@@ -86,7 +116,7 @@ class GrpcIdentityTests {
         assertThat(client.resolve("session", null, false).roles()).containsExactly("USER");
         assertThat(admin.roles()).contains("ADMIN");
         var source = new java.util.HashSet<>(Set.of("USER"));
-        var principal = new com.agora.merchant.application.IdentityPort.Principal(UUID.randomUUID(), source);
+        var principal = new com.agora.merchant.application.IdentityPort.Principal(UUID.randomUUID(), source, "SELLER", "Fixture operator");
         source.add("ADMIN");
         assertThat(principal.roles()).containsExactly("USER");
     }

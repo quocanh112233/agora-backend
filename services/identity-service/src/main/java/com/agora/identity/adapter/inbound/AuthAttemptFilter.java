@@ -30,7 +30,8 @@ public class AuthAttemptFilter extends OncePerRequestFilter {
 
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !request.getMethod().equals("POST") || !(request.getRequestURI().equals("/api/v1/auth/sessions")
-                || request.getRequestURI().equals("/api/v1/auth/registrations"));
+                || request.getRequestURI().equals("/api/v1/auth/registrations")
+                || request.getRequestURI().equals("/api/v1/auth/seller-registrations"));
     }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

@@ -10,6 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
 final class CartRpcFixture implements AutoCloseable {
+    final AtomicReference<AccountType> accountType = new AtomicReference<>(AccountType.BUYER);
     static final String TOKEN="commerce-test-internal-token-at-least-32";
     final Map<String,UUID> sessions=new ConcurrentHashMap<>();
     final Map<UUID,CartOffer> offers=new ConcurrentHashMap<>();
@@ -41,7 +42,7 @@ final class CartRpcFixture implements AutoCloseable {
                 if(identityFailure.get()!=null){out.onError(identityFailure.get().asRuntimeException());return;}
                 UUID account=sessions.get(r.getSessionId());if(account==null){out.onError(Status.UNAUTHENTICATED.asRuntimeException());return;}
                 if(r.getRequireCsrf()&&!r.getCsrfToken().equals("csrf-fixture")){out.onError(Status.PERMISSION_DENIED.asRuntimeException());return;}
-                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(account.toString()).addRoles("USER").build());out.onCompleted();
+                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(account.toString()).addRoles("USER").setAccountType(accountType.get()).build());out.onCompleted();
             }
         }).build().start();
         catalogServer=InProcessServerBuilder.forName(catalog).directExecutor().intercept(auth()).addService(new CatalogOffersGrpc.CatalogOffersImplBase(){

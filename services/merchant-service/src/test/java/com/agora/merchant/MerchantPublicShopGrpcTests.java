@@ -43,6 +43,7 @@ import static org.mockito.Mockito.*;
 class MerchantPublicShopGrpcTests {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             System.getProperty("agora.test.postgres-image", "postgres:16.15-alpine"));
+    @org.springframework.test.context.bean.override.mockito.MockitoBean com.agora.merchant.application.IdentityPort identity;
     @Autowired JdbcTemplate jdbc;
     @Autowired JdbcMerchantStore store;
     @Autowired MerchantGrpcServer server;
@@ -54,12 +55,23 @@ class MerchantPublicShopGrpcTests {
         properties.add("spring.datasource.password", POSTGRES::getPassword);
     }
     @BeforeEach void start() {
+        org.mockito.Mockito.when(identity.activeSellers(org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(call -> { java.util.List<UUID> ids = call.getArgument(0); return java.util.Set.copyOf(ids); });
         server.start();
         channel = ManagedChannelBuilder.forAddress("127.0.0.1", server.port()).usePlaintext().disableRetry().build();
     }
     @AfterEach void stop() throws Exception {
         if (channel != null) channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         if (server != null) server.stop();
+    }
+    @Test void ownerIneligibilityOmitsPublicShopAndIdentityFailureFailsClosed() {
+        var current = shop("ACTIVE", "Public farm");
+        when(identity.activeSellers(List.of(current.ownerAccountId()))).thenReturn(java.util.Set.of());
+        assertThat(client(MerchantGrpcTests.TOKEN).findPublicShops(request(List.of(current.id().toString()))).getShopsList()).isEmpty();
+        when(identity.activeSellers(List.of(current.ownerAccountId())))
+                .thenThrow(new com.agora.merchant.domain.MerchantFailure(503, "IDENTITY_UNAVAILABLE", "Unavailable"));
+        assertThatThrownBy(() -> client(MerchantGrpcTests.TOKEN).findPublicShops(request(List.of(current.id().toString()))))
+                .isInstanceOfSatisfying(StatusRuntimeException.class, e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.UNAVAILABLE));
     }
     Shop shop(String status, String name) {
         Shop shop = Shop.draft(UUID.randomUUID(), name, "Private description", "0901234567",

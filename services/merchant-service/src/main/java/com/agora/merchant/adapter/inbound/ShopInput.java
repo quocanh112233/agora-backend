@@ -2,6 +2,7 @@ package com.agora.merchant.adapter.inbound;
 
 import com.agora.merchant.application.ShopService.Create;
 import com.agora.merchant.domain.MerchantFailure;
+import com.agora.merchant.domain.Shop;
 import com.agora.merchant.domain.Shop.Address;
 import com.agora.merchant.domain.Shop.Patch;
 import com.agora.merchant.domain.Shop.Review;
@@ -42,6 +43,16 @@ final class ShopInput {
         if (!Set.of("APPROVE", "REJECT").contains(decision)) throw invalid("Invalid review decision.");
         String reason = body.has("reason") || "REJECT".equals(decision) ? text(body, "reason", 10, 1000) : null;
         return new Review(version, decision, reason);
+    }
+    static Shop.StatusChange moderation(JsonNode body) {
+        fields(body, Set.of("status", "expectedVersion", "reason"));
+        String status = text(body, "status", 1, 20);
+        if (!Set.of("ACTIVE", "SUSPENDED").contains(status)) throw invalid("Invalid moderation status.");
+        long version = version(body);
+        String reason = text(body, "reason", 0, 10000).strip();
+        int size = reason.codePointCount(0, reason.length());
+        if (version > 9007199254740991L || size < 10 || size > 1000 || reason.indexOf('\0') >= 0) throw invalid("Invalid moderation input.");
+        return new Shop.StatusChange(status, version, reason);
     }
     private static long version(JsonNode body) {
         JsonNode version = body.path("expectedVersion");

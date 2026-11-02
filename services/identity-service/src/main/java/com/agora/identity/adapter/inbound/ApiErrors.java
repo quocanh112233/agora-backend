@@ -69,6 +69,11 @@ public class ApiErrors {
                 unknownField ? "VALIDATION_ERROR" : "BAD_REQUEST", "Nội dung JSON không hợp lệ."));
     }
 
+    @ExceptionHandler(com.agora.identity.domain.AdminAccountFailure.class)
+    ResponseEntity<?> adminFailure(com.agora.identity.domain.AdminAccountFailure failure, HttpServletRequest request) {
+        return ResponseEntity.status(failure.status()).body(body(request, failure.code(), failure.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<?> unexpected(Exception exception, HttpServletRequest request) {
         org.slf4j.LoggerFactory.getLogger(ApiErrors.class).error("Request failed traceId={} type={}",

@@ -13,12 +13,13 @@ import uuid
 parser = argparse.ArgumentParser()
 parser.add_argument("--reuse", action="store_true", help="Verify the previous synthetic account/shop survived recreation")
 args = parser.parse_args()
-state_path = Path(__file__).resolve().parents[1] / "target/container-demo-smoke.json"
+state_path = Path(__file__).resolve().parents[1] / "target/account-types-container-smoke.json"
 if args.reuse:
     state = json.loads(state_path.read_text())
 else:
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state = {"email": "docker-" + uuid.uuid4().hex + "@example.test", "password": secrets.token_urlsafe(24)}
+    state = {"email": "docker-seller-" + uuid.uuid4().hex + "@example.test", "password": secrets.token_urlsafe(24),
+             "buyerEmail": "docker-buyer-" + uuid.uuid4().hex + "@example.test", "buyerPassword": secrets.token_urlsafe(24)}
     with os.fdopen(os.open(state_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as target:
         json.dump(state, target)
 
@@ -44,10 +45,14 @@ def csrf():
     return {value["headerName"]: value["token"]}
 
 if not args.reuse:
+    call("POST", "/auth/seller-registrations", 201,
+         {"email": state["email"], "password": state["password"], "displayName": "Docker Demo Seller"}, csrf())
     call("POST", "/auth/registrations", 201,
-         {**state, "displayName": "Docker Demo"}, csrf())
+         {"email": state["buyerEmail"], "password": state["buyerPassword"], "displayName": "Docker Demo Buyer"}, csrf())
+    call("GET", "/me", 401)
 account = call("POST", "/auth/sessions", 200, {"email": state["email"], "password": state["password"]}, csrf())
 assert call("GET", "/me", 200)["id"] == account["id"]
+assert account["accountType"] == "SELLER"
 if args.reuse:
     assert account["id"] == state["accountId"]
     shop = call("GET", "/me/shop", 200)
@@ -64,12 +69,24 @@ assert shop["status"] == "DRAFT" and shop["ownerAccountId"] == account["id"]
 assert call("GET", "/me/shop", 200)["id"] == shop["id"]
 call("GET", "/admin/shops?page=0&pageSize=20", 403)
 assert call("GET", "/products", 200)["items"] == []
-assert call("GET", "/me/cart", 200)["items"] == []
+call("GET", "/me/cart", 403)
+call("GET", "/me/payment-attempts/" + str(uuid.uuid4()), 403)
 product_id = str(uuid.uuid4())
 assert call("GET", f"/products/{product_id}/reviews", 200)["items"] == []
 assert call("GET", f"/products/{product_id}/review-summary", 200) == {"count": 0, "averageRating": None}
 call("GET", "/seller/reviews", 403)  # DRAFT shop is not eligible, even with an authenticated owner.
+call("DELETE", "/auth/sessions/current", 204, headers=csrf())
+buyer = call("POST", "/auth/sessions", 200, {"email": state["buyerEmail"], "password": state["buyerPassword"]}, csrf())
+assert buyer["accountType"] == "BUYER" and buyer["id"] != account["id"]
+if args.reuse:
+    assert buyer["id"] == state["buyerId"]
+else:
+    state["buyerId"] = buyer["id"]
+    state_path.write_text(json.dumps(state))
+assert call("GET", "/me/cart", 200)["items"] == []
+call("GET", "/me/shop", 403)
+call("GET", "/seller/products", 403)
 call("GET", "/me/payment-attempts/" + str(uuid.uuid4()), 404)
 call("DELETE", "/auth/sessions/current", 204, headers=csrf())
 call("GET", "/me", 401)
-print("PASS: real Next/auth/merchant/commerce/payment/feedback routes; " + ("account/shop persisted." if args.reuse else "synthetic account/shop created."))
+print("PASS: real Next/auth/merchant/commerce/payment/feedback routes; " + ("account/shop persisted." if args.reuse else "separate synthetic BUYER/SELLER accounts and shop created."))

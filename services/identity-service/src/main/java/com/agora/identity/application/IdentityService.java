@@ -18,25 +18,36 @@ public class IdentityService {
         this.dummyHash = passwords.encode(UUID.randomUUID().toString());
     }
 
-    public Account register(String email, String password, String displayName) {
-        return accounts.create(Account.newUser(UUID.randomUUID(), email, displayName, Instant.now()),
+    public Account register(String email, String password, String displayName, com.agora.identity.domain.AccountType accountType) {
+        return accounts.create(Account.newUser(UUID.randomUUID(), email, displayName, accountType, Instant.now()),
                 passwords.encode(password));
     }
 
-    public Account login(String email, String password) {
+    public AccountRepository.Snapshot login(String email, String password) {
         var stored = accounts.findByEmail(Account.normalizeEmail(email));
         // Always run the KDF, including absent/suspended users; never identify which credential failed.
         boolean matches = passwords.matches(password, stored.map(AccountRepository.Credentials::hash).orElse(dummyHash));
-        if (stored.isEmpty() || !matches || !stored.get().account().status().equals("ACTIVE")) {
+        if (stored.isEmpty() || !matches || !stored.get().account().status().equals("ACTIVE") || stored.get().account().accountType() == null) {
             throw new Unauthenticated();
         }
-        return stored.get().account();
+        var verified = current(stored.get().account().id());
+        if (verified.version() != stored.get().version()) throw new Unauthenticated();
+        return verified;
     }
 
-    public Account current(UUID id) {
-        return accounts.findById(id).filter(account -> account.status().equals("ACTIVE"))
-                .orElseThrow(Unauthenticated::new);
+    public AccountRepository.Snapshot current(UUID id) {
+        return accounts.findById(id).filter(snapshot -> snapshot.account().status().equals("ACTIVE")
+                && snapshot.account().accountType() != null).orElseThrow(Unauthenticated::new);
     }
+
+    public Account authenticated(UUID id, Object typeStamp, Object versionStamp) {
+        var snapshot = current(id);
+        if (!snapshot.account().accountType().name().equals(typeStamp) || !(versionStamp instanceof Long version)
+                || version < 0 || version != snapshot.version()) throw new Unauthenticated();
+        return snapshot.account();
+    }
+
+    public java.util.List<AccountRepository.State> states(java.util.List<UUID> ids) { return accounts.states(ids); }
 
     public static class Unauthenticated extends RuntimeException { }
 }

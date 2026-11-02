@@ -10,6 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
 final class PaymentRpcFixture implements AutoCloseable {
+    final AtomicReference<AccountType> accountType = new AtomicReference<>(AccountType.BUYER);
     static final String TOKEN="payment-fixture-internal-token-at-least-32";
     final Map<String,UUID> sessions=new ConcurrentHashMap<>();
     final Map<String,PayableOrderResponse> orders=new ConcurrentHashMap<>();
@@ -26,7 +27,7 @@ final class PaymentRpcFixture implements AutoCloseable {
                 if(identityFailure.get()!=null){out.onError(identityFailure.get().asRuntimeException());return;}
                 UUID actor=sessions.get(r.getSessionId());if(actor==null){out.onError(Status.UNAUTHENTICATED.asRuntimeException());return;}
                 if(r.getRequireCsrf()&&!r.getCsrfToken().equals("csrf-fixture")){out.onError(Status.PERMISSION_DENIED.asRuntimeException());return;}
-                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(actor.toString()).addRoles("USER").build());out.onCompleted();
+                out.onNext(ResolveSessionResponse.newBuilder().setAccountId(actor.toString()).addRoles("USER").setAccountType(accountType.get()).build());out.onCompleted();
             }
         }).build().start();
         commerceServer=InProcessServerBuilder.forName(commerce).directExecutor().intercept(auth()).addService(new CommercePaymentsGrpc.CommercePaymentsImplBase(){

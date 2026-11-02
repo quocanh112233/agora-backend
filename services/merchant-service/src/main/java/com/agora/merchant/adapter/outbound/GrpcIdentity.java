@@ -23,6 +23,28 @@ public class GrpcIdentity implements IdentityPort {
         metadata.put(Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER), token);
         stub = SessionIdentityGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
     }
+    @Override public java.util.Set<UUID> activeSellers(java.util.List<UUID> ids) {
+        if (ids.isEmpty()) return java.util.Set.of();
+        if (ids.size() > 5 || java.util.Set.copyOf(ids).size() != ids.size()) throw new IllegalArgumentException();
+        try {
+            var response = stub.withDeadlineAfter(2, TimeUnit.SECONDS).getAccountStates(
+                    com.agora.contracts.identity.v1.GetAccountStatesRequest.newBuilder()
+                    .addAllAccountIds(ids.stream().map(UUID::toString).toList()).build());
+            var seen = new java.util.HashSet<UUID>();
+            var active = new java.util.HashSet<UUID>();
+            for (var account : response.getAccountsList()) {
+                UUID id = UUID.fromString(account.getAccountId());
+                if (!id.toString().equalsIgnoreCase(account.getAccountId()) || !ids.contains(id) || !seen.add(id)
+                        || account.getAccountType() == com.agora.contracts.identity.v1.AccountType.ACCOUNT_TYPE_UNSPECIFIED
+                        || account.getAccountType() == com.agora.contracts.identity.v1.AccountType.UNRECOGNIZED)
+                    throw new IllegalArgumentException();
+                if (account.getIsActive() && account.getAccountType() == com.agora.contracts.identity.v1.AccountType.SELLER) active.add(id);
+            }
+            return java.util.Set.copyOf(active);
+        } catch (StatusRuntimeException | IllegalArgumentException e) {
+            throw new MerchantFailure(503, "IDENTITY_UNAVAILABLE", "Owner eligibility is unavailable.");
+        }
+    }
     @Override public Principal resolve(String sessionId, String csrfToken, boolean requireCsrf) {
         if (sessionId == null || sessionId.isBlank())
             throw new MerchantFailure(401, "UNAUTHENTICATED", "Session is required.");
@@ -33,7 +55,10 @@ public class GrpcIdentity implements IdentityPort {
             String account = response.getAccountId();
             UUID id = UUID.fromString(account);
             if (!id.toString().equalsIgnoreCase(account)) throw new IllegalArgumentException();
-            return new Principal(id, java.util.Set.copyOf(response.getRolesList()));
+            if (response.getAccountType() == com.agora.contracts.identity.v1.AccountType.ACCOUNT_TYPE_UNSPECIFIED
+                    || response.getAccountType() == com.agora.contracts.identity.v1.AccountType.UNRECOGNIZED)
+                throw new IllegalArgumentException();
+            return new Principal(id, java.util.Set.copyOf(response.getRolesList()), response.getAccountType().name(), response.getDisplayName());
         } catch (StatusRuntimeException e) {
             throw switch (e.getStatus().getCode()) {
                 case UNAUTHENTICATED -> new MerchantFailure(401, "UNAUTHENTICATED", "Session is invalid.");

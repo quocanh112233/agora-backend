@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agora Identity & Merchant API",
-    "version": "0.1.0",
-    "description": "Bundle cho identity-service và merchant-service riêng; x-service chỉ provider. Endpoint nghiệp vụ chưa triển khai. Cookie/CSRF là opaque, không xem ví dụ như credential."
+    "version": "1.0.0",
+    "description": "Bundle cho identity-service và merchant-service riêng; x-service chỉ provider. Endpoint nghiệp vụ chưa triển khai. Cookie/CSRF là opaque, không xem ví dụ như credential.\nRevision 1.0.0 thay đổi quyền: BUYER/SELLER đăng ký riêng, email unique toàn hệ thống; accountType là trường bắt buộc. Tài khoản cũ chưa phân loại hoặc session cũ thiếu type stamp phải đăng nhập lại sau khi được phân loại."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -113,13 +113,13 @@
       "post": {
         "operationId": "registerAccount",
         "x-service": "identity-service",
-        "summary": "Đăng ký USER; không tự đăng nhập.",
+        "summary": "Đăng ký BUYER; không tự đăng nhập.",
         "tags": [
           "Authentication"
         ],
         "responses": {
           "201": {
-            "description": "Account được tạo với USER, không cấp ADMIN.",
+            "description": "Account BUYER với role USER; không cấp ADMIN.",
             "headers": {
               "Cache-Control": {
                 "description": "Không cache response riêng hoặc token.",
@@ -925,6 +925,88 @@
         },
         "description": "ADMIN, expectedVersion hiện tại. REJECT bắt buộc reason 10–1000 ký tự. Hai admin cùng version chỉ một thành công; key/payload lặp không thêm audit/review trùng."
       }
+    },
+    "/auth/seller-registrations": {
+      "post": {
+        "operationId": "registerSellerAccount",
+        "x-service": "identity-service",
+        "summary": "Đăng ký SELLER riêng; chưa tạo hoặc duyệt shop.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "201": {
+            "description": "Account SELLER với role USER; đăng nhập rồi gửi hồ sơ shop để admin duyệt.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Không cache response riêng hoặc token.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Trace-Id": {
+                "description": "Correlation identifier; không chứa secret.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Csrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          }
+        },
+        "description": "Không tự retry. Email trim/lowercase unique; password không trim. Field role hoặc field lạ bị từ chối."
+      }
     }
   },
   "components": {
@@ -1063,6 +1145,14 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "accountType": {
+            "type": "string",
+            "enum": [
+              "BUYER",
+              "SELLER"
+            ],
+            "description": "Loại cố định theo endpoint đăng ký, độc lập với role USER/ADMIN."
           }
         },
         "required": [
@@ -1071,7 +1161,8 @@
           "displayName",
           "roles",
           "status",
-          "createdAt"
+          "createdAt",
+          "accountType"
         ]
       },
       "Registration": {

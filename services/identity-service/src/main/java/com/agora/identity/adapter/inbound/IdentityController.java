@@ -43,12 +43,20 @@ public class IdentityController {
     @PostMapping("/auth/registrations")
     @ResponseStatus(HttpStatus.CREATED)
     Account register(@Valid @RequestBody Registration request) {
-        return identity.register(request.email(), request.password(), request.displayName());
+        return identity.register(request.email(), request.password(), request.displayName(), com.agora.identity.domain.AccountType.BUYER);
+    }
+
+    @PostMapping("/auth/seller-registrations")
+    @ResponseStatus(HttpStatus.CREATED)
+    Account registerSeller(@Valid @RequestBody Registration request) {
+        return identity.register(request.email(), request.password(), request.displayName(),
+                com.agora.identity.domain.AccountType.SELLER);
     }
 
     @PostMapping("/auth/sessions")
     Account login(@Valid @RequestBody Login input, HttpServletRequest request, HttpServletResponse response) {
-        Account account = identity.login(input.email(), input.password());
+        var snapshot = identity.login(input.email(), input.password());
+        Account account = snapshot.account();
         var authentication = UsernamePasswordAuthenticationToken.authenticated(account.id().toString(), null,
                 account.roles().stream().map(role -> new SimpleGrantedAuthority("ROLE_" + role)).toList());
         new ChangeSessionIdAuthenticationStrategy().onAuthentication(authentication, request, response);
@@ -56,12 +64,16 @@ public class IdentityController {
         var context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
+        request.getSession().setAttribute("AGORA_ACCOUNT_TYPE", account.accountType().name());
+        request.getSession().setAttribute("AGORA_ACCOUNT_VERSION", snapshot.version());
         contexts.saveContext(context, request, response);
         return account;
     }
 
     @GetMapping("/me")
-    Account me(Principal principal) { return identity.current(UUID.fromString(principal.getName())); }
+    Account me(Principal principal, HttpServletRequest request) {
+        return identity.authenticated(UUID.fromString(principal.getName()), request.getSession().getAttribute("AGORA_ACCOUNT_TYPE"), request.getSession().getAttribute("AGORA_ACCOUNT_VERSION"));
+    }
 
     @DeleteMapping("/auth/sessions/current")
     @ResponseStatus(HttpStatus.NO_CONTENT)

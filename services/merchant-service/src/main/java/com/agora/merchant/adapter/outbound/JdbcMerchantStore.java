@@ -100,6 +100,24 @@ public class JdbcMerchantStore implements MerchantStore {
                 VALUES (?,?,?,?,?,?,?,?)
                 """, UUID.randomUUID(), actor, shop.id(), action, previousStatus, shop.status(), reason, UUID.fromString(traceId));
     }
+    @Override public void statusAudit(Shop shop, UUID actor, String actorName, String previousStatus, String reason, String traceId) {
+        jdbc.update("""
+                INSERT INTO merchant.audit_entries(id,actor_account_id,actor_display_name,shop_id,action,
+                    previous_status,next_status,reason,version_after,trace_id,created_at)
+                VALUES (?,?,?,?, 'CHANGE_SHOP_STATUS',?,?,?,?,?,clock_timestamp())
+                """, UUID.randomUUID(), actor, actorName, shop.id(), previousStatus, shop.status(), reason, shop.version(), UUID.fromString(traceId));
+    }
+    @Override public java.util.List<History> history(UUID target, java.time.Instant time, UUID id, int limit) {
+        var args = new java.util.ArrayList<Object>(); args.add(target);
+        String where = "shop_id = ? AND action = 'CHANGE_SHOP_STATUS'";
+        if (time != null) { where += " AND (created_at,id) < (?,?)"; args.add(Timestamp.from(time)); args.add(id); }
+        args.add(limit);
+        return jdbc.query("SELECT id,shop_id,actor_account_id,actor_display_name,previous_status,next_status,reason,version_after,created_at "
+                + "FROM merchant.audit_entries WHERE " + where + " ORDER BY created_at DESC,id DESC LIMIT ?",
+                (rs, row) -> new History(rs.getObject("id", UUID.class), rs.getObject("shop_id", UUID.class),
+                        rs.getObject("actor_account_id", UUID.class), rs.getString("actor_display_name"), rs.getString("previous_status"),
+                        rs.getString("next_status"), rs.getString("reason"), rs.getLong("version_after"), rs.getTimestamp("created_at").toInstant()), args.toArray());
+    }
     @Override public void complete(Key key, Result result) {
         int changed = jdbc.update("""
                 UPDATE merchant.idempotency_records SET state='COMPLETED',http_status=?,response_snapshot=?::jsonb,resource_id=?

@@ -36,6 +36,13 @@ public record Shop(UUID id, UUID ownerAccountId, String name, String description
         requireStatus("PENDING_REVIEW");
         return transition("APPROVE".equals(review.decision()) ? "ACTIVE" : "REJECTED", review.reason());
     }
+    public record StatusChange(String status, long expectedVersion, String reason) {}
+    public Shop moderate(StatusChange change) {
+        checkVersion(change.expectedVersion());
+        if (!("ACTIVE".equals(status) || "SUSPENDED".equals(status)) || status.equals(change.status()) || version >= 9007199254740991L)
+            throw new MerchantFailure(409, "INVALID_SHOP_STATE", "Only approved shops can change status.");
+        return transition(change.status(), lastReviewReason);
+    }
     private void checkVersion(long expectedVersion) {
         if (version != expectedVersion)
             throw new MerchantFailure(409, "STALE_VERSION", "Shop version has changed.");

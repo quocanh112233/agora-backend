@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.*;
 public final class Feedback {
     private Feedback() {}
-    public record Actor(UUID id,boolean admin) {}
+    public record Actor(UUID id,boolean admin,String accountType) {}
     public record Line(UUID buyerId,UUID orderId,UUID skuId,UUID productId,UUID shopId) {}
     public record Content(int rating,String content) {
         public Content {if(rating<1||rating>5)throw invalid();content=text(content,2000);}

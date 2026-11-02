@@ -40,13 +40,15 @@ class MerchantApiTests {
     }
     static class FakeIdentity implements IdentityPort {
         final Map<String, UUID> sessions = new ConcurrentHashMap<>();
+        final Map<UUID, String> types = new ConcurrentHashMap<>();
         final Map<UUID, Set<String>> roles = new ConcurrentHashMap<>();
+        @Override public Set<UUID> activeSellers(List<UUID> ids) { return ids.stream().filter(id -> "SELLER".equals(types.get(id))).collect(java.util.stream.Collectors.toSet()); }
         @Override public Principal resolve(String session, String csrf, boolean unsafe) {
             UUID actor = session == null ? null : sessions.get(session);
             if (actor == null) throw new MerchantFailure(401, "UNAUTHENTICATED", "Invalid session.");
             if (unsafe && !"masked-csrf-fixture".equals(csrf))
                 throw new MerchantFailure(403, "FORBIDDEN", "Invalid CSRF.");
-            return new Principal(actor, roles.getOrDefault(actor, Set.of("USER")));
+            return new Principal(actor, roles.getOrDefault(actor, Set.of("USER")), types.get(actor), "Fixture operator");
         }
     }
     @LocalServerPort int port;
@@ -62,7 +64,9 @@ class MerchantApiTests {
             """;
     String session() {
         String raw = "raw+opaque/" + UUID.randomUUID() + "==";
-        identity.sessions.put(raw, UUID.randomUUID());
+        UUID actor = UUID.randomUUID();
+        identity.sessions.put(raw, actor);
+        identity.types.put(actor, "SELLER");
         return raw;
     }
     HttpResponse<String> request(String method, String path, String body, String session, String key, String csrf)
@@ -95,6 +99,118 @@ class MerchantApiTests {
     }
     HttpResponse<String> review(HttpResponse<String> shop, String admin, String body, String key) throws Exception {
         return mutate("POST", reviewPath(shop), body, admin, key);
+    }
+
+    @Test void adminSuspendsAndRestoresOnlyApprovedShopsWithHistoryAndActiveOwner() throws Exception {
+        String owner = session(), operator = admin();
+        var shop = create(owner, key()); String id = tree(shop).path("id").asString();
+        String path = "/api/v1/admin/shops/" + id + "/status";
+        String suspend = "{\"status\":\"SUSPENDED\",\"expectedVersion\":2,\"reason\":\"Kiểm tra đình chỉ shop\"}";
+        assertThat(mutate("PUT", path, suspend, owner, null).statusCode()).isEqualTo(403);
+        assertThat(mutate("PUT", path, suspend, operator, null).statusCode()).isEqualTo(409);
+        assertThat(submit(shop, owner, 0, key()).statusCode()).isEqualTo(200);
+        assertThat(review(shop, operator, "{\"decision\":\"APPROVE\",\"expectedVersion\":1}", key()).statusCode()).isEqualTo(200);
+        assertThat(request("PUT", path, suspend, operator, null, null).statusCode()).isEqualTo(403);
+        var locked = mutate("PUT", path, suspend, operator, null);
+        assertThat(locked.statusCode()).as(locked.body()).isEqualTo(200);
+        assertThat(tree(locked).path("status").asString()).isEqualTo("SUSPENDED");
+        assertThat(tree(locked).path("version").asLong()).isEqualTo(3);
+        assertThat(mutate("PUT", path, suspend, operator, null).statusCode()).isEqualTo(409);
+        identity.types.remove(identity.sessions.get(owner));
+        String restore = "{\"status\":\"ACTIVE\",\"expectedVersion\":3,\"reason\":\"Đã xác minh lại cửa hàng\"}";
+        assertThat(mutate("PUT", path, restore, operator, null).statusCode()).isEqualTo(409);
+        identity.types.put(identity.sessions.get(owner), "SELLER");
+        assertThat(mutate("PUT", path, restore, operator, null).statusCode()).isEqualTo(200);
+        var history = request("GET", "/api/v1/admin/shops/" + id + "/status-history", null, operator, null, null);
+        assertThat(history.statusCode()).isEqualTo(200);
+        assertThat(tree(history).path("items").size()).isEqualTo(2);
+        assertThat(tree(history).path("items").get(0).path("version").asLong()).isEqualTo(4);
+        assertThat(tree(history).path("items").get(1).path("previousStatus").asString()).isEqualTo("ACTIVE");
+        assertThat(tree(history).path("items").get(0).path("actorDisplayName").asString()).isNotBlank();
+        assertThat(request("GET", "/api/v1/admin/shops/" + id + "/status-history?unknown=1", null, operator, null, null).statusCode()).isEqualTo(422);
+    }
+
+    @Test void shopStatusRacesAndAuditFailureKeepOneVersionAndRollback() throws Exception {
+        String owner = session(), first = admin(), second = admin();
+        var shop = create(owner, key()); String id = tree(shop).path("id").asString();
+        submit(shop, owner, 0, key());
+        review(shop, first, "{\"decision\":\"APPROVE\",\"expectedVersion\":1}", key());
+        String path = "/api/v1/admin/shops/" + id + "/status";
+        String suspend = "{\"status\":\"SUSPENDED\",\"expectedVersion\":2,\"reason\":\"Kiểm tra đình chỉ shop\"}";
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var a = executor.submit(() -> mutate("PUT", path, suspend, first, null));
+            var b = executor.submit(() -> mutate("PUT", path, suspend, second, null));
+            assertThat(List.of(a.get().statusCode(), b.get().statusCode())).containsExactlyInAnyOrder(200, 409);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM merchant.audit_entries WHERE shop_id = ?::uuid AND action = 'CHANGE_SHOP_STATUS'", Integer.class, id)).isEqualTo(1);
+        jdbc.execute("ALTER TABLE merchant.audit_entries ADD CONSTRAINT test_moderation_failure CHECK (action <> 'CHANGE_SHOP_STATUS' OR next_status <> 'ACTIVE')");
+        try {
+            var failed = mutate("PUT", path, "{\"status\":\"ACTIVE\",\"expectedVersion\":3,\"reason\":\"Đã xác minh lại cửa hàng\"}", first, null);
+            assertThat(failed.statusCode()).as(failed.body()).isEqualTo(503);
+            assertThat(failed.body()).doesNotContain("INSERT", "test_moderation_failure");
+            assertThat(jdbc.queryForObject("SELECT status FROM merchant.shops WHERE id = ?::uuid", String.class, id)).isEqualTo("SUSPENDED");
+            assertThat(jdbc.queryForObject("SELECT version FROM merchant.shops WHERE id = ?::uuid", Long.class, id)).isEqualTo(3);
+        } finally { jdbc.execute("ALTER TABLE merchant.audit_entries DROP CONSTRAINT test_moderation_failure"); }
+        identity.roles.remove(identity.sessions.get(first));
+        assertThat(mutate("PUT", path, suspend, first, null).statusCode()).isEqualTo(403);
+        assertThat(request("GET", "/api/v1/admin/shops/" + id + "/status-history", null, first, null, null).statusCode()).isEqualTo(403);
+    }
+
+    @Test void moderationHistoryPagesBindShopAndInputKeepsUnicodeValidationAtBoundary() throws Exception {
+        String owner = session(), operator = admin();
+        var shop = create(owner, key()); String id = tree(shop).path("id").asString();
+        submit(shop, owner, 0, key());
+        review(shop, operator, "{\"decision\":\"APPROVE\",\"expectedVersion\":1}", key());
+        String path = "/api/v1/admin/shops/" + id + "/status";
+        for (String bad : List.of("{\"status\":\"SUSPENDED\",\"expectedVersion\":\"2\",\"reason\":\"Valid reason here\"}",
+                "{\"status\":\"SUSPENDED\",\"expectedVersion\":9007199254740992,\"reason\":\"Valid reason here\"}",
+                "{\"status\":\"DRAFT\",\"expectedVersion\":2,\"reason\":\"Valid reason here\"}",
+                "{\"status\":\"SUSPENDED\",\"expectedVersion\":2,\"reason\":\"Valid reason here\",\"actorId\":\"spoof\"}"))
+            assertThat(mutate("PUT", path, bad, operator, null).statusCode()).isEqualTo(422);
+        String nul = JsonMapper.builder().build().writeValueAsString(Map.of("status", "SUSPENDED", "expectedVersion", 2, "reason", "Valid reason\u0000"));
+        assertThat(mutate("PUT", path, nul, operator, null).statusCode()).isEqualTo(422);
+        for (int i = 0; i < 21; i++) {
+            String body = JsonMapper.builder().build().writeValueAsString(Map.of("status", i % 2 == 0 ? "SUSPENDED" : "ACTIVE",
+                    "expectedVersion", i + 2, "reason", "  " + "🐟".repeat(10) + "  "));
+            assertThat(mutate("PUT", path, body, operator, null).statusCode()).isEqualTo(200);
+        }
+        String history = "/api/v1/admin/shops/" + id + "/status-history";
+        var first = tree(request("GET", history, null, operator, null, null));
+        assertThat(first.path("items").size()).isEqualTo(20);
+        assertThat(first.path("items").get(0).path("reason").asString()).isEqualTo("🐟".repeat(10));
+        String cursor = first.path("nextCursor").asString();
+        var second = tree(request("GET", history + "?cursor=" + cursor, null, operator, null, null));
+        assertThat(second.path("items").size()).isEqualTo(1);
+        assertThat(second.path("items").get(0).path("version").asLong()).isEqualTo(3);
+        assertThat(second.path("nextCursor").isNull()).isTrue();
+        assertThat(request("GET", "/api/v1/admin/shops/" + UUID.randomUUID() + "/status-history?cursor=" + cursor, null, operator, null, null).statusCode()).isEqualTo(422);
+        assertThat(request("GET", history + "?cursor=a&cursor=b", null, operator, null, null).statusCode()).isEqualTo(422);
+    }
+
+    @Test void adminCanReadShopByOwnerWithoutGivingSellerReadAccessToBuyers() throws Exception {
+        String owner = session(), operator = admin();
+        identity.types.put(identity.sessions.get(operator), "BUYER");
+        var created = create(owner, key());
+        String path = "/api/v1/admin/shops/by-owner/" + identity.sessions.get(owner);
+        var response = request("GET", path, null, operator, null, null);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(tree(response).path("id")).isEqualTo(tree(created).path("id"));
+        assertThat(request("GET", path, null, owner, null, null).statusCode()).isEqualTo(403);
+        assertThat(request("GET", "/api/v1/admin/shops/by-owner/" + UUID.randomUUID(), null, operator, null, null).statusCode()).isEqualTo(404);
+        assertThat(request("GET", "/api/v1/admin/shops/by-owner/bad-id", null, operator, null, null).statusCode()).isEqualTo(422);
+        assertThat(request("GET", path + "?unknown=1", null, operator, null, null).statusCode()).isEqualTo(422);
+        identity.roles.put(identity.sessions.get(operator), Set.of("USER"));
+        assertThat(request("GET", path, null, operator, null, null).statusCode()).isEqualTo(403);
+    }
+
+    @Test void buyerCannotReadOrCreateShopEvenWithAdminRole() throws Exception {
+        String s = admin();
+        identity.types.put(identity.sessions.get(s), "BUYER");
+        assertThat(create(s, key()).statusCode()).isEqualTo(403);
+        assertThat(request("GET", "/api/v1/me/shop", null, s, null, null).statusCode()).isEqualTo(403);
+        assertThat(request("GET", "/api/v1/admin/shops", null, s, null, null).statusCode()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM merchant.idempotency_records WHERE actor_id = ?", Integer.class,
+                identity.sessions.get(s))).isZero();
     }
 
     @Test void rejectsUsersAndAnonymousFromAdminRoutesBeforeClaimingKeys() throws Exception {

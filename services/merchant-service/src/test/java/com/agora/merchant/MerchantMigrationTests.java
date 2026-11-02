@@ -39,14 +39,14 @@ class MerchantMigrationTests {
 
         var migration = Flyway.configure().dataSource(source).schemas("merchant").load().migrate();
 
-        assertThat(migration.migrationsExecuted).isEqualTo(1);
+        assertThat(migration.migrationsExecuted).isEqualTo(2);
         assertThat(service.mine(owner)).isEqualTo(original.shop());
-        assertThat(jdbc.queryForList("select * from merchant.audit_entries")).isEqualTo(oldAudits);
+        assertThat(jdbc.queryForList("select id,actor_account_id,shop_id,action,previous_status,next_status,reason,trace_id,created_at from merchant.audit_entries")).isEqualTo(oldAudits);
         assertThat(jdbc.queryForList("select * from merchant.idempotency_records")).isEqualTo(oldKeys);
         var replay = transactions.execute(status -> store.claim(key).orElseThrow());
         assertThat(replay).isEqualTo(original);
         assertThat(jdbc.queryForObject("select count(*) from merchant.shop_reviews", Long.class)).isZero();
         assertThat(jdbc.queryForList("select version from merchant.flyway_schema_history where success and version is not null order by installed_rank",
-                String.class)).containsExactly("1", "2");
+                String.class)).containsExactly("1", "2", "3");
     }
 }

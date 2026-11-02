@@ -35,15 +35,16 @@ public class MerchantGrpcServer implements SmartLifecycle {
     private static final Metadata.Key<String> INTERNAL_TOKEN =
             Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER);
     private final ShopService shops;
+    private final com.agora.merchant.application.IdentityPort identity;
     private final int configuredPort;
     private final byte[] token;
     private volatile Server server;
 
-    public MerchantGrpcServer(ShopService shops, @Value("${agora.grpc.port}") int port,
+    public MerchantGrpcServer(ShopService shops, com.agora.merchant.application.IdentityPort identity, @Value("${agora.grpc.port}") int port,
             @Value("${agora.grpc.token}") String token) {
         if (token == null || token.length() < 32 || token.length() > 256 || !token.matches("[A-Za-z0-9_-]+"))
             throw new IllegalArgumentException("INTERSERVICE_TOKEN must contain 32–256 URL-safe characters.");
-        this.shops = shops; this.configuredPort = port;
+        this.shops = shops; this.identity = identity; this.configuredPort = port;
         this.token = token.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -93,7 +94,9 @@ public class MerchantGrpcServer implements SmartLifecycle {
             }
             try {
                 var response = FindPublicShopsResponse.newBuilder();
-                for (var shop : shops.findPublicShops(ids))
+                var candidates = shops.findPublicShops(ids);
+                var eligible = identity.activeSellers(candidates.stream().map(ShopService.PublicShop::ownerAccountId).distinct().toList());
+                for (var shop : candidates) if (eligible.contains(shop.ownerAccountId()))
                     response.addShops(PublicShop.newBuilder().setId(shop.id().toString()).setName(shop.name()));
                 observer.onNext(response.build());
                 observer.onCompleted();
@@ -114,7 +117,7 @@ public class MerchantGrpcServer implements SmartLifecycle {
             }
             try {
                 var shop = shops.mine(account);
-                if (!"ACTIVE".equals(shop.status())) {
+                if (!"ACTIVE".equals(shop.status()) || !identity.activeSellers(java.util.List.of(account)).contains(account)) {
                     observer.onError(Status.PERMISSION_DENIED.asRuntimeException());
                     return;
                 }

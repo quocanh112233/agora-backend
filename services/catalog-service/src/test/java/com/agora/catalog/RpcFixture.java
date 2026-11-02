@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.*;
 
 final class RpcFixture implements AutoCloseable {
+    final AtomicReference<AccountType> accountType = new AtomicReference<>(AccountType.SELLER);
     static final String TOKEN = "catalog-test-internal-token-at-least-32";
     final Map<String, UUID> sessions = new ConcurrentHashMap<>();
     final Map<UUID, UUID> shops = new ConcurrentHashMap<>();
@@ -45,7 +46,7 @@ final class RpcFixture implements AutoCloseable {
                             out.onError(Status.PERMISSION_DENIED.asRuntimeException()); return;
                         }
                         out.onNext(ResolveSessionResponse.newBuilder().setAccountId(accountOverride.get() == null
-                                ? account.toString() : accountOverride.get()).addRoles("USER").build());
+                                ? account.toString() : accountOverride.get()).addRoles("USER").setAccountType(accountType.get()).build());
                         out.onCompleted();
                     }
                 }).build().start();

@@ -85,6 +85,28 @@ public class IdentityGrpcServer implements SmartLifecycle {
     }
 
     private final class Endpoint extends SessionIdentityGrpc.SessionIdentityImplBase {
+        @Override public void getAccountStates(com.agora.contracts.identity.v1.GetAccountStatesRequest request,
+                StreamObserver<com.agora.contracts.identity.v1.GetAccountStatesResponse> observer) {
+            var ids = new java.util.ArrayList<UUID>();
+            try {
+                if (request.getAccountIdsCount() < 1 || request.getAccountIdsCount() > 5) throw new IllegalArgumentException();
+                for (String value : request.getAccountIdsList()) {
+                    UUID id = UUID.fromString(value);
+                    if (!id.toString().equalsIgnoreCase(value) || ids.contains(id)) throw new IllegalArgumentException();
+                    ids.add(id);
+                }
+            } catch (IllegalArgumentException e) { observer.onError(Status.INVALID_ARGUMENT.asRuntimeException()); return; }
+            try {
+                var result = com.agora.contracts.identity.v1.GetAccountStatesResponse.newBuilder();
+                for (var account : identity.states(ids)) {
+                    result.addAccounts(com.agora.contracts.identity.v1.AccountState.newBuilder()
+                            .setAccountId(account.id().toString()).setIsActive(account.active())
+                            .setAccountType(com.agora.contracts.identity.v1.AccountType.valueOf(account.accountType().name())));
+                }
+                observer.onNext(result.build()); observer.onCompleted();
+            } catch (RuntimeException e) { observer.onError(Status.UNAVAILABLE.asRuntimeException()); }
+        }
+
         @Override public void resolveSession(ResolveSessionRequest request, StreamObserver<ResolveSessionResponse> observer) {
             try {
                 if (!request.getSessionId().matches("[0-9a-fA-F-]{36}")) throw Status.UNAUTHENTICATED.asRuntimeException();
@@ -93,7 +115,7 @@ public class IdentityGrpcServer implements SmartLifecycle {
                 SecurityContext context = session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
                 var authentication = context == null ? null : context.getAuthentication();
                 if (authentication == null || !authentication.isAuthenticated()) throw Status.UNAUTHENTICATED.asRuntimeException();
-                var account = identity.current(UUID.fromString(authentication.getName()));
+                var account = identity.authenticated(UUID.fromString(authentication.getName()), session.getAttribute("AGORA_ACCOUNT_TYPE"), session.getAttribute("AGORA_ACCOUNT_VERSION"));
                 if (request.getRequireCsrf() && !SessionCsrfVerifier.matches(session.getAttribute("AGORA_CSRF"), request.getCsrfToken())) {
                     throw Status.PERMISSION_DENIED.asRuntimeException();
                 }
@@ -107,7 +129,8 @@ public class IdentityGrpcServer implements SmartLifecycle {
                         request.getSessionId(), now.toEpochMilli());
                 if (touched != 1) throw Status.UNAUTHENTICATED.asRuntimeException();
                 observer.onNext(ResolveSessionResponse.newBuilder().setAccountId(account.id().toString())
-                        .addAllRoles(account.roles()).build());
+                        .addAllRoles(account.roles()).setDisplayName(account.displayName())
+                        .setAccountType(com.agora.contracts.identity.v1.AccountType.valueOf(account.accountType().name())).build());
                 observer.onCompleted();
             } catch (IdentityService.Unauthenticated exception) { observer.onError(Status.UNAUTHENTICATED.asRuntimeException()); }
             catch (StatusRuntimeException exception) { observer.onError(exception); }

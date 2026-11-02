@@ -88,6 +88,140 @@ class IdentityApiTests {
         assertThat(browser.mutate("POST", "/auth/registrations", "{broken").statusCode()).isEqualTo(400);
     }
 
+    @Test
+    void buyerAndSellerRegisterSeparatelyAndShareOneEmailNamespace() throws Exception {
+        Browser buyer = new Browser();
+        String email = "typed-" + UUID.randomUUID() + "@example.test";
+        var registeredBuyer = buyer.mutate("POST", "/auth/registrations", registration(email));
+        assertThat(registeredBuyer.statusCode()).isEqualTo(201);
+        assertThat(json.readTree(registeredBuyer.body()).path("accountType").asString()).isEqualTo("BUYER");
+        Browser seller = new Browser();
+        assertThat(seller.mutate("POST", "/auth/seller-registrations", registration(email.toUpperCase())).statusCode())
+                .isEqualTo(409);
+        String sellerEmail = "seller-" + UUID.randomUUID() + "@example.test";
+        var registeredSeller = seller.mutate("POST", "/auth/seller-registrations", registration(sellerEmail));
+        assertThat(registeredSeller.statusCode()).isEqualTo(201);
+        var account = json.readTree(registeredSeller.body());
+        assertThat(account.path("accountType").asString()).isEqualTo("SELLER");
+        assertThat(account.path("roles").toString()).isEqualTo("[\"USER\"]");
+        assertThat(account.path("id").asString()).isNotEqualTo(json.readTree(registeredBuyer.body()).path("id").asString());
+        assertThat(seller.request("GET", "/me", null, null).statusCode()).isEqualTo(401);
+        var loggedIn = seller.mutate("POST", "/auth/sessions", credentials(sellerEmail, "correct-horse battery"));
+        assertThat(loggedIn.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(loggedIn.body()).path("accountType").asString()).isEqualTo("SELLER");
+        assertThat(json.readTree(seller.request("GET", "/me", null, null).body()).path("accountType").asString())
+                .isEqualTo("SELLER");
+    }
+
+    @Test
+    void registrationsCannotChooseAccountTypeOrAdminRoleAndSellerNeedsCsrf() throws Exception {
+        Browser browser = new Browser();
+        assertThat(browser.request("POST", "/auth/seller-registrations", registration("seller-csrf@example.test"), null)
+                .statusCode()).isEqualTo(403);
+        for (String path : java.util.List.of("/auth/registrations", "/auth/seller-registrations")) {
+            for (String injected : java.util.List.of(",\"roles\":[\"ADMIN\"]", ",\"accountType\":\"SELLER\"")) {
+                assertThat(browser.mutate("POST", path, registration("injected@example.test").replace("}", injected + "}"))
+                        .statusCode()).isEqualTo(422);
+            }
+        }
+        assertThat(browser.mutate("POST", "/auth/seller-registrations", registration("invalid-email")).statusCode()).isEqualTo(422);
+    }
+
+    @Test
+    void unclassifiedLegacyAccountsAndSessionsWithoutTypeStampFailClosed() throws Exception {
+        Browser browser = new Browser();
+        String email = "legacy-" + UUID.randomUUID() + "@example.test";
+        browser.mutate("POST", "/auth/registrations", registration(email));
+        browser.mutate("POST", "/auth/sessions", credentials(email, "correct-horse battery"));
+        String sessionId = browser.sessionCookie();
+        jdbc.update("DELETE FROM identity.spring_session_attributes WHERE attribute_name = 'AGORA_ACCOUNT_TYPE' "
+                + "AND session_primary_id IN (SELECT primary_id FROM identity.spring_session WHERE session_id = ?)", sessionId);
+        assertThat(browser.request("GET", "/me", null, null).statusCode()).isEqualTo(401);
+        jdbc.update("UPDATE identity.accounts SET account_type = NULL WHERE email = ?", email);
+        assertThat(browser.mutate("POST", "/auth/sessions", credentials(email, "correct-horse battery")).statusCode()).isEqualTo(401);
+        jdbc.update("UPDATE identity.accounts SET account_type = 'BUYER' WHERE email = ?", email);
+        assertThat(browser.request("GET", "/me", null, null).statusCode()).isEqualTo(401);
+        assertThat(browser.mutate("POST", "/auth/sessions", credentials(email, "correct-horse battery")).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void stampedHttpSessionCannotSurviveMissingOrChangedAccountType() throws Exception {
+        Browser browser = new Browser();
+        String email = "stamp-http-" + UUID.randomUUID() + "@example.test";
+        browser.mutate("POST", "/auth/registrations", registration(email));
+        browser.mutate("POST", "/auth/sessions", credentials(email, "correct-horse battery"));
+        jdbc.update("UPDATE identity.accounts SET account_type = NULL WHERE email = ?", email);
+        assertThat(browser.request("GET", "/me", null, null).statusCode()).isEqualTo(401);
+        jdbc.update("UPDATE identity.accounts SET account_type = 'SELLER' WHERE email = ?", email);
+        assertThat(browser.request("GET", "/me", null, null).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void grpcResolvesSellerTypeAndRejectsLegacyMissingAndMismatchedStamps() throws Exception {
+        Browser browser = new Browser();
+        String email = "stamp-rpc-" + UUID.randomUUID() + "@example.test";
+        browser.mutate("POST", "/auth/seller-registrations", registration(email));
+        browser.mutate("POST", "/auth/sessions", credentials(email, "correct-horse battery"));
+        var channel = ManagedChannelBuilder.forAddress("127.0.0.1", grpc.port()).usePlaintext().build();
+        var metadata = new Metadata();
+        metadata.put(Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER),
+                "integration-test-internal-token-not-a-real-secret");
+        var stub = SessionIdentityGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata))
+                .withDeadlineAfter(5, java.util.concurrent.TimeUnit.SECONDS);
+        var request = ResolveSessionRequest.newBuilder().setSessionId(browser.sessionCookie()).build();
+        try {
+            assertThat(stub.resolveSession(request).getAccountType().name()).isEqualTo("SELLER");
+            jdbc.update("UPDATE identity.accounts SET account_type = NULL WHERE email = ?", email);
+            assertThatThrownBy(() -> stub.resolveSession(request)).isInstanceOfSatisfying(StatusRuntimeException.class,
+                    e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.UNAUTHENTICATED));
+            jdbc.update("UPDATE identity.accounts SET account_type = 'BUYER' WHERE email = ?", email);
+            assertThatThrownBy(() -> stub.resolveSession(request)).isInstanceOfSatisfying(StatusRuntimeException.class,
+                    e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.UNAUTHENTICATED));
+            jdbc.update("UPDATE identity.accounts SET account_type = 'SELLER' WHERE email = ?", email);
+            jdbc.update("DELETE FROM identity.spring_session_attributes WHERE attribute_name = 'AGORA_ACCOUNT_TYPE' "
+                    + "AND session_primary_id IN (SELECT primary_id FROM identity.spring_session WHERE session_id = ?)", browser.sessionCookie());
+            assertThatThrownBy(() -> stub.resolveSession(request)).isInstanceOfSatisfying(StatusRuntimeException.class,
+                    e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.UNAUTHENTICATED));
+        } finally { channel.shutdownNow().awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); }
+    }
+
+    @Test
+    void privateBatchStatesExposeOnlyRequestedClassifiedAccountsAndEnforceBounds() throws Exception {
+        Browser browser = new Browser();
+        String email = "states-" + UUID.randomUUID() + "@example.test";
+        var created = browser.mutate("POST", "/auth/seller-registrations", registration(email));
+        String id = json.readTree(created.body()).path("id").asString();
+        var request = com.agora.contracts.identity.v1.GetAccountStatesRequest.newBuilder().addAccountIds(id)
+                .addAccountIds(UUID.randomUUID().toString()).build();
+        var channel = ManagedChannelBuilder.forAddress("127.0.0.1", grpc.port()).usePlaintext().build();
+        var metadata = new Metadata();
+        metadata.put(Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER),
+                "integration-test-internal-token-not-a-real-secret");
+        var stub = SessionIdentityGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+        try {
+            var state = stub.getAccountStates(request);
+            assertThat(state.getAccountsCount()).isEqualTo(1);
+            assertThat(state.getAccounts(0).getAccountId()).isEqualTo(id);
+            assertThat(state.getAccounts(0).getAccountType().name()).isEqualTo("SELLER");
+            assertThat(state.getAccounts(0).getIsActive()).isTrue();
+            jdbc.update("UPDATE identity.accounts SET status = 'SUSPENDED' WHERE email = ?", email);
+            assertThat(stub.getAccountStates(request).getAccounts(0).getIsActive()).isFalse();
+            jdbc.update("UPDATE identity.accounts SET account_type = NULL WHERE email = ?", email);
+            assertThat(stub.getAccountStates(request).getAccountsCount()).isZero();
+            assertThatThrownBy(() -> SessionIdentityGrpc.newBlockingStub(channel).getAccountStates(request))
+                    .isInstanceOfSatisfying(StatusRuntimeException.class,
+                            e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.PERMISSION_DENIED));
+            var empty = com.agora.contracts.identity.v1.GetAccountStatesRequest.newBuilder();
+            var oversized = empty.clone();
+            for (int i = 0; i < 6; i++) oversized.addAccountIds(UUID.randomUUID().toString());
+            for (var invalid : java.util.List.of(empty.build(), request.toBuilder().addAccountIds(id).build(),
+                    empty.clone().addAccountIds("not-a-uuid").build(), oversized.build())) {
+                assertThatThrownBy(() -> stub.getAccountStates(invalid)).isInstanceOfSatisfying(StatusRuntimeException.class,
+                        e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
+            }
+        } finally { channel.shutdownNow().awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); }
+    }
+
     private String registration(String email) {
         return "{\"email\":\"" + email + "\",\"password\":\"correct-horse battery\",\"displayName\":\"Quốc Anh\"}";
     }
@@ -153,6 +287,7 @@ class IdentityApiTests {
             var resolve = ResolveSessionRequest.newBuilder().setSessionId(browser.sessionCookie()).setCsrfToken(csrf).setRequireCsrf(true).build();
             assertThat(stub.resolveSession(resolve).getAccountId()).isEqualTo(accountId);
             assertThat(stub.resolveSession(resolve).getRolesList()).containsExactly("USER");
+            assertThat(stub.resolveSession(resolve).getAccountType().name()).isEqualTo("BUYER");
             assertThatThrownBy(() -> stub.resolveSession(resolve.toBuilder().setCsrfToken("wrong").build()))
                     .isInstanceOfSatisfying(StatusRuntimeException.class, failure ->
                             assertThat(failure.getStatus().getCode()).isEqualTo(Status.Code.PERMISSION_DENIED));
@@ -232,7 +367,7 @@ class IdentityApiTests {
             loaded.countDown();
             assertThat(resume.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             return invocation.callRealMethod();
-        }).when(identity).current(accountId);
+        }).when(identity).authenticated(org.mockito.ArgumentMatchers.eq(accountId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         var channel = ManagedChannelBuilder.forAddress("127.0.0.1", grpc.port()).usePlaintext().build();
         try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
             var metadata = new Metadata();
