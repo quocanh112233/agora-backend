@@ -19,6 +19,7 @@
     <description>Agora marketplace backend services</description>
 
     <modules>
+        <module>libraries/cloudinary-media</module>
         <module>libraries/email-contract</module>
         <module>libraries/identity-contract</module>
         <module>libraries/merchant-contract</module>

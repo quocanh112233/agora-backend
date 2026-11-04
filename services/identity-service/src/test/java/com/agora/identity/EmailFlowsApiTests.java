@@ -27,8 +27,17 @@ class EmailFlowsApiTests {
   p.add("spring.datasource.url",POSTGRES::getJdbcUrl);p.add("spring.datasource.username",POSTGRES::getUsername);p.add("spring.datasource.password",POSTGRES::getPassword);
  }
  @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods=false) static class MailFixture {
+  @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary AvatarMedia avatarMedia(){return new AvatarMedia();}
   @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary CapturingMail fakeMail(){return new CapturingMail();}
  }
+ static class AvatarMedia implements com.agora.media.ImageStorage {
+  final Map<String,Stored> files=new java.util.concurrent.ConcurrentHashMap<>();int uploads;boolean malformed;Runnable afterUpload;Runnable beforeFind;final Set<String> failDeletes=new HashSet<>();
+  public Optional<Stored> find(String id){if(beforeFind!=null)beforeFind.run();return Optional.ofNullable(files.get(id));}
+  public Stored upload(byte[] data,String mime,String id){uploads++;String format=mime.equals("image/png")?"png":"jpg";var file=new Stored(id,1,format,data.length,2,2,malformed?"https://attacker.invalid/image":"https://res.cloudinary.com/fixture-cloud/image/upload/v1/"+id+"."+format);files.put(id,file);if(afterUpload!=null)afterUpload.run();return file;}
+  public void delete(String id){if(failDeletes.contains(id))throw new IllegalStateException("Synthetic deletion failure");files.remove(id);}
+ }
+ @Autowired AvatarMedia avatarMedia;
+ @Autowired com.agora.identity.application.ProfileService profiles;
  static class CapturingMail implements com.agora.identity.application.EmailPort {
   record Link(String recipient,String purpose,String token){@Override public String toString(){return "TestLink[redacted]";}}
   final java.util.List<Link> links=new java.util.concurrent.CopyOnWriteArrayList<>();boolean fail;
@@ -43,7 +52,7 @@ class EmailFlowsApiTests {
  @Autowired com.agora.identity.configuration.IdentityGrpcServer grpc;
  @Autowired org.springframework.session.jdbc.JdbcIndexedSessionRepository sessions;
  final JsonMapper json=JsonMapper.builder().build();
- @BeforeEach void reset(){jdbc.execute("TRUNCATE identity.accounts,identity.spring_session CASCADE");mail.links.clear();mail.fail=false;}
+ @BeforeEach void reset(){jdbc.execute("TRUNCATE identity.accounts,identity.spring_session CASCADE");mail.links.clear();mail.fail=false;avatarMedia.files.clear();avatarMedia.uploads=0;avatarMedia.malformed=false;avatarMedia.afterUpload=null;avatarMedia.beforeFind=null;avatarMedia.failDeletes.clear();}
  @Test void registrationCannotLoginBeforeEmailConfirmation() throws Exception {
   var browser=new Browser();browser.register();
   assertThat(browser.login().statusCode()).isEqualTo(401);
@@ -154,6 +163,104 @@ class EmailFlowsApiTests {
    String fresh=b.cookies.getCookieStore().getCookies().stream().filter(c->c.getName().equals("AGORA_SESSION")).findFirst().orElseThrow().getValue();
    assertThat(rpc.resolveSession(com.agora.contracts.identity.v1.ResolveSessionRequest.newBuilder().setSessionId(fresh).build()).getAccountId()).isEqualTo(id);
   }finally{channel.shutdownNow().awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS);}
+ }
+ @Test void emailChangeProvesNewAddressAndRevokesOldSessions() throws Exception {
+  var b=new Browser();UUID id=b.register();verify(b);b.login();String next="new-"+UUID.randomUUID()+"@example.test";
+  assertThat(b.post("/me/email-changes",Map.of("currentPassword","wrong","newEmail",next)).statusCode()).isEqualTo(422);
+  assertThat(b.post("/me/email-changes",Map.of("currentPassword","synthetic-long-password","newEmail",next)).statusCode()).isEqualTo(202);
+  assertThat(b.post("/me/email-changes",Map.of("currentPassword","synthetic-long-password","newEmail","other@example.test")).statusCode()).isEqualTo(429);
+  assertThat(b.login().statusCode()).isEqualTo(200);while(actions.dispatch()){}
+  String token=mail.links.stream().filter(x->x.recipient().equals(next)&&x.purpose().equals("CHANGE_EMAIL")).findFirst().orElseThrow().token();
+  assertThat(b.post("/auth/password-changes/confirm",Map.of("token",token)).statusCode()).isEqualTo(422);
+  assertThat(b.post("/auth/email-changes/confirm",Map.of("token",token)).statusCode()).isEqualTo(204);
+  assertThat(b.get("/me").statusCode()).isEqualTo(401);assertThat(b.login().statusCode()).isEqualTo(401);
+  assertThat(b.post("/auth/sessions",Map.of("email",next,"password","synthetic-long-password")).statusCode()).isEqualTo(200);
+  assertThat(b.post("/auth/email-changes/confirm",Map.of("token",token)).statusCode()).isEqualTo(422);
+  assertThat(jdbc.queryForObject("SELECT email FROM identity.accounts WHERE id=?",String.class,id)).isEqualTo(next);
+ }
+ @Test void emailChangeRejectsDuplicatesAndLateUniqueRaceAtomically() throws Exception {
+  var a=new Browser();UUID id=a.register();verify(a);a.login();var other=new Browser();other.register();
+  assertThat(a.post("/me/email-changes",Map.of("currentPassword","synthetic-long-password","newEmail",other.email)).statusCode()).isEqualTo(409);
+  assertThat(a.post("/me/email-changes",Map.of("currentPassword","synthetic-long-password","newEmail",a.email)).statusCode()).isEqualTo(422);
+  String target="race-"+UUID.randomUUID()+"@example.test";assertThat(a.post("/me/email-changes",Map.of("currentPassword","synthetic-long-password","newEmail",target)).statusCode()).isEqualTo(202);
+  while(actions.dispatch()){}String token=mail.links.stream().filter(x->x.recipient().equals(target)).findFirst().orElseThrow().token();
+  var racer=new Browser();racer.email=target;racer.register();
+  assertThat(a.post("/auth/email-changes/confirm",Map.of("token",token)).statusCode()).isEqualTo(409);
+  assertThat(jdbc.queryForObject("SELECT email FROM identity.accounts WHERE id=?",String.class,id)).isEqualTo(a.email);assertThat(a.get("/me").statusCode()).isEqualTo(200);
+ }
+ @Test void displayNameHasIndependentVersionAndRejectsEscalation() throws Exception {
+  var b=new Browser();UUID id=b.register();verify(b);b.login();var csrf=json.readTree(b.get("/auth/csrf").body()).path("token").asString();
+  String body=json.writeValueAsString(Map.of("displayName","  Tên mới 🌱  ","expectedVersion",0));var response=b.send("PATCH","/me/profile",body,csrf);
+  assertThat(response.statusCode()).isEqualTo(200);assertThat(json.readTree(response.body()).path("displayName").asString()).isEqualTo("Tên mới 🌱");assertThat(b.get("/me").statusCode()).isEqualTo(200);
+  assertThat(jdbc.queryForObject("SELECT version FROM identity.accounts WHERE id=?",Long.class,id)).isEqualTo(1);
+  assertThat(b.send("PATCH","/me/profile",body,csrf).statusCode()).isEqualTo(409);
+  assertThat(b.send("PATCH","/me/profile",json.writeValueAsString(Map.of("displayName","Again","expectedVersion",1,"roles",List.of("ADMIN"))),csrf).statusCode()).isEqualTo(422);
+  assertThat(b.send("PATCH","/me/profile",body,null).statusCode()).isEqualTo(403);
+ }
+ byte[] png()throws Exception{var bytes=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2,2,java.awt.image.BufferedImage.TYPE_INT_RGB),"png",bytes);return bytes.toByteArray();}
+ HttpResponse<String> avatar(Browser b,UUID id,long expected,byte[] data,String mime)throws Exception{
+  String boundary="fixture-"+UUID.randomUUID();var bytes=new java.io.ByteArrayOutputStream();
+  for(var field:Map.of("uploadId",id.toString(),"expectedVersion",Long.toString(expected)).entrySet())bytes.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\""+field.getKey()+"\"\r\n\r\n"+field.getValue()+"\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  bytes.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"avatar.png\"\r\nContent-Type: "+mime+"\r\n\r\n").getBytes());bytes.write(data);bytes.write(("\r\n--"+boundary+"--\r\n").getBytes());
+  String csrf=json.readTree(b.get("/auth/csrf").body()).path("token").asString();
+  return b.client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1/me/avatar")).header("X-CSRF-TOKEN",csrf).header("Content-Type","multipart/form-data; boundary="+boundary).PUT(HttpRequest.BodyPublishers.ofByteArray(bytes.toByteArray())).build(),HttpResponse.BodyHandlers.ofString());
+ }
+ @Test void avatarReplayReplaceRemoveAndCleanupAreOwnedAndVersioned()throws Exception{
+  var b=new Browser();b.register();verify(b);b.login();UUID first=UUID.randomUUID();byte[] image=png();
+  var response=avatar(b,first,0,image,"image/png");assertThat(response.statusCode()).as(response.body()).isEqualTo(200);assertThat(json.readTree(response.body()).path("avatar").path("id").asString()).isEqualTo(first.toString());
+  assertThat(avatar(b,first,0,image,"image/png").statusCode()).isEqualTo(200);assertThat(avatarMedia.uploads).isEqualTo(1);
+  var second=new Browser();second.register();verify(second);second.login();assertThat(avatar(second,first,0,image,"image/png").statusCode()).isEqualTo(409);
+  UUID replacement=UUID.randomUUID();assertThat(avatar(b,replacement,0,image,"image/png").statusCode()).isEqualTo(409);assertThat(avatar(b,replacement,1,image,"image/png").statusCode()).isEqualTo(200);
+  jdbc.update("UPDATE identity.avatar_uploads SET expires_at=clock_timestamp()-interval '2 minutes' WHERE state='DELETING'");profiles.cleanup();assertThat(avatarMedia.files).hasSize(1);assertThat(avatarMedia.files.keySet().iterator().next()).endsWith(replacement.toString());
+  String csrf=json.readTree(b.get("/auth/csrf").body()).path("token").asString();assertThat(b.send("DELETE","/me/avatar",json.writeValueAsString(Map.of("expectedVersion",2)),csrf).statusCode()).isEqualTo(200);jdbc.update("UPDATE identity.avatar_uploads SET expires_at=clock_timestamp()-interval '2 minutes' WHERE state='DELETING'");profiles.cleanup();assertThat(avatarMedia.files).isEmpty();assertThat(b.get("/me").statusCode()).isEqualTo(200);
+ }
+ @Test void avatarValidationAndUntrustedMetadataNeverAttach()throws Exception{
+  var b=new Browser();b.register();verify(b);b.login();
+  assertThat(avatar(b,UUID.randomUUID(),0,png(),"image/jpeg").statusCode()).isEqualTo(415);
+  assertThat(avatar(b,UUID.randomUUID(),0,new byte[5242881],"image/png").statusCode()).isEqualTo(413);
+  assertThat(avatarMedia.uploads).isZero();avatarMedia.malformed=true;
+  assertThat(avatar(b,UUID.randomUUID(),0,png(),"image/png").statusCode()).isEqualTo(503);
+  assertThat(json.readTree(b.get("/me/profile").body()).path("avatar").isNull()).isTrue();
+ }
+ @Test void avatarRemoteRaceCannotAttachAfterSecurityOrProfileChange()throws Exception{
+  var b=new Browser();UUID owner=b.register();verify(b);b.login();
+  avatarMedia.afterUpload=()->jdbc.update("UPDATE identity.accounts SET profile_version=profile_version+1 WHERE id=?",owner);
+  UUID first=UUID.randomUUID();assertThat(avatar(b,first,0,png(),"image/png").statusCode()).isEqualTo(409);
+  avatarMedia.afterUpload=()->jdbc.update("UPDATE identity.accounts SET version=version+1 WHERE id=?",owner);
+  assertThat(avatar(b,UUID.randomUUID(),1,png(),"image/png").statusCode()).isEqualTo(401);
+  jdbc.update("UPDATE identity.avatar_uploads SET expires_at=clock_timestamp()-interval '2 minutes'");profiles.cleanup();assertThat(avatarMedia.files).isEmpty();
+ }
+ @Test void profileStrictInputsAndAuthenticatedScopeAreEnforced()throws Exception{
+  var b=new Browser();assertThat(b.get("/me/profile").statusCode()).isEqualTo(401);b.register();verify(b);b.login();String csrf=json.readTree(b.get("/auth/csrf").body()).path("token").asString();
+  for(Object name:List.of("x"," ","A\u0000B","A\nB","x".repeat(101),42))assertThat(b.send("PATCH","/me/profile",json.writeValueAsString(Map.of("displayName",name,"expectedVersion",0)),csrf).statusCode()).isEqualTo(422);
+  for(Object version:List.of(-1,0.5,"0",9007199254740991L))assertThat(b.send("PATCH","/me/profile",json.writeValueAsString(Map.of("displayName","Name","expectedVersion",version)),csrf).statusCode()).isEqualTo(422);
+ }
+ @Test void concurrentAvatarReplayNeverStartsAnotherProviderWriteOrAttach()throws Exception{
+  var b=new Browser();b.register();verify(b);b.login();UUID id=UUID.randomUUID();byte[] file=png();var arrived=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+  avatarMedia.afterUpload=()->{arrived.countDown();try{if(!release.await(10,java.util.concurrent.TimeUnit.SECONDS))throw new IllegalStateException("Fixture timeout");}catch(InterruptedException e){throw new IllegalStateException(e);}};
+  try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()){
+   var first=executor.submit(()->avatar(b,id,0,file,"image/png"));assertThat(arrived.await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+   try{assertThat(avatar(b,id,0,file,"image/png").statusCode()).isEqualTo(409);}finally{release.countDown();}
+   assertThat(first.get().statusCode()).isEqualTo(200);assertThat(avatarMedia.uploads).isEqualTo(1);
+  }
+ }
+ @Test void cleanupFailuresYieldToLaterCandidates()throws Exception{
+  var b=new Browser();UUID owner=b.register();verify(b);String oldest=null;
+  for(int i=0;i<11;i++){UUID id=UUID.randomUUID();String publicId="agora/avatars/"+owner+"/"+id;if(i==0)oldest=publicId;
+   jdbc.update("INSERT INTO identity.avatar_uploads(id,account_id,request_hash,expected_version,public_id,mime,bytes,width,height,expires_at) VALUES (?,?,?,0,?,'image/png',1,2,2,clock_timestamp()-interval '2 hours'+?*interval '1 second')",id,owner,"a".repeat(64),publicId,i);
+   avatarMedia.files.put(publicId,new com.agora.media.ImageStorage.Stored(publicId,1,"png",1,2,2,"https://res.cloudinary.com/fixture-cloud/image/upload/v1/"+publicId+".png"));if(i<10)avatarMedia.failDeletes.add(publicId);
+  }
+  profiles.cleanup();profiles.cleanup();assertThat(avatarMedia.files).hasSize(10);assertThat(avatarMedia.files).containsKey(oldest);
+ }
+ @Test void lateProviderWriteAfterDeletionIsReconciledByExactTombstone()throws Exception{
+  var b=new Browser();b.register();verify(b);b.login();UUID id=UUID.randomUUID();byte[] file=png();var arrived=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+  avatarMedia.beforeFind=()->{arrived.countDown();try{if(!release.await(10,java.util.concurrent.TimeUnit.SECONDS))throw new IllegalStateException("Fixture timeout");}catch(InterruptedException e){throw new IllegalStateException(e);}};
+  try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()){
+   var late=executor.submit(()->avatar(b,id,0,file,"image/png"));assertThat(arrived.await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+   try{jdbc.update("UPDATE identity.avatar_uploads SET expires_at=clock_timestamp()-interval '2 minutes' WHERE id=?",id);profiles.cleanup();assertThat(jdbc.queryForObject("SELECT state FROM identity.avatar_uploads WHERE id=?",String.class,id)).isEqualTo("DELETED");}finally{release.countDown();}
+   assertThat(late.get().statusCode()).isEqualTo(409);assertThat(avatarMedia.files).hasSize(1);
+   jdbc.update("UPDATE identity.avatar_uploads SET retry_at=clock_timestamp() WHERE id=?",id);profiles.cleanup();assertThat(avatarMedia.files).isEmpty();
+  }
  }
  class Browser {
   String email="email-flow-"+UUID.randomUUID()+"@example.test";

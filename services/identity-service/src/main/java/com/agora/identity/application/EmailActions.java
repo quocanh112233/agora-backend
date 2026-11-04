@@ -63,6 +63,20 @@ public class EmailActions {
     }
 
     @Transactional
+    public void changeEmail(UUID id,long version,String currentPassword,String newEmail) {
+        var state=store.lock(id).orElseThrow(IdentityService.Unauthenticated::new);
+        if(!active(state)||!state.verified()||state.version()!=version)throw new IdentityService.Unauthenticated();
+        if(!passwords.matches(currentPassword,state.passwordHash()))throw new AdminAccountFailure(422,"CURRENT_PASSWORD_INVALID","Mật khẩu hiện tại không đúng.");
+        String email=Account.normalizeEmail(newEmail);
+        if(state.email().equals(email))throw new AdminAccountFailure(422,"EMAIL_UNCHANGED","Email mới trùng email hiện tại.");
+        if(store.coolingDown(id,"CHANGE_EMAIL"))throw new AdminAccountFailure(429,"EMAIL_COOLDOWN","Chờ một phút trước khi yêu cầu lại.");
+        if(store.find(email).isPresent())throw new AdminAccountFailure(409,"EMAIL_IN_USE","Email đã được sử dụng.");
+        UUID action=UUID.randomUUID();String token=tokens.create();
+        store.queue(action,state,"CHANGE_EMAIL",tokens.digest(token),tokens.seal(action,"CHANGE_EMAIL",token),null,state.now().plusSeconds(1800));
+        store.targetEmail(action,email);
+    }
+
+    @Transactional
     public void confirm(String token, String purpose, String newPassword) {
         byte[] digest;
         try { digest = tokens.digest(token); }
@@ -83,7 +97,10 @@ public class EmailActions {
             hash = action.pendingHash();
             if (hash == null) throw invalid();
         }
-        store.apply(state, ref.id(), hash);
+        if("CHANGE_EMAIL".equals(purpose)) {
+            if(action.pendingEmail()==null)throw invalid();
+            store.applyEmail(state,ref.id(),action.pendingEmail());
+        } else store.apply(state, ref.id(), hash);
     }
 
     @Transactional

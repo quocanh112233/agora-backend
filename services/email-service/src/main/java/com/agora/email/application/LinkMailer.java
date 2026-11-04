@@ -37,7 +37,7 @@ public class LinkMailer {
             if (!id.toString().equals(request.getDeliveryId()) || !request.getToken().matches("[A-Za-z0-9_-]{43}")
                     || Base64.getUrlDecoder().decode(request.getToken()).length != 32) throw new IllegalArgumentException();
             address(request.getRecipient());
-            if (!Set.of(LinkPurpose.VERIFY_EMAIL, LinkPurpose.RESET_PASSWORD, LinkPurpose.CHANGE_PASSWORD).contains(request.getPurpose())) throw new IllegalArgumentException();
+            if (!Set.of(LinkPurpose.VERIFY_EMAIL, LinkPurpose.RESET_PASSWORD, LinkPurpose.CHANGE_PASSWORD, LinkPurpose.CHANGE_EMAIL).contains(request.getPurpose())) throw new IllegalArgumentException();
             var expiry = Instant.ofEpochSecond(request.getExpiresAtEpochSeconds());
             if (!expiry.isAfter(Instant.now()) || expiry.isAfter(Instant.now().plusSeconds(86700))) throw new IllegalArgumentException();
         } catch (Exception e) { throw new IllegalArgumentException("Invalid private delivery request."); }
@@ -54,6 +54,7 @@ public class LinkMailer {
         switch (request.getPurpose()) {
             case VERIFY_EMAIL -> { subject = "Xác nhận email tài khoản Agora"; route = "verify-email"; }
             case RESET_PASSWORD -> { subject = "Đặt lại mật khẩu Agora"; route = "reset-password"; }
+            case CHANGE_EMAIL -> { subject = "Xác nhận đổi email Agora"; route = "confirm-email-change"; }
             case CHANGE_PASSWORD -> { subject = "Xác nhận đổi mật khẩu Agora"; route = "confirm-password-change"; }
             default -> throw new IllegalArgumentException();
         }

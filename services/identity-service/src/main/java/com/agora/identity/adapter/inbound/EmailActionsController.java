@@ -32,6 +32,14 @@ public class EmailActionsController {
   actions.change(account.id(),(Long)session.getAttribute("AGORA_ACCOUNT_VERSION"),body.currentPassword(),body.newPassword());
   return accepted();
  }
+ @PostMapping("/me/email-changes") @ResponseStatus(HttpStatus.ACCEPTED)
+ java.util.Map<String,String> changeEmail(@Valid @RequestBody EmailChangeRequest body,Principal principal,HttpServletRequest request){
+  var session=request.getSession();var account=identity.authenticated(UUID.fromString(principal.getName()),session.getAttribute("AGORA_ACCOUNT_TYPE"),session.getAttribute("AGORA_ACCOUNT_VERSION"));
+  actions.changeEmail(account.id(),(Long)session.getAttribute("AGORA_ACCOUNT_VERSION"),body.currentPassword(),body.newEmail());return accepted();
+ }
+ @PostMapping("/auth/email-changes/confirm") @ResponseStatus(HttpStatus.NO_CONTENT)
+ void confirmEmailChange(@Valid @RequestBody TokenRequest body){actions.confirm(body.token(),"CHANGE_EMAIL",null);}
+ record EmailChangeRequest(@NotBlank @Size(max=256)String currentPassword,@NotBlank @Email @Size(max=254)String newEmail){EmailChangeRequest{newEmail=Account.normalizeEmail(newEmail);}@Override public String toString(){return "EmailChangeRequest[redacted]";}}
  private static java.util.Map<String,String> accepted(){return java.util.Map.of("message","Nếu yêu cầu đủ điều kiện, link xác nhận sẽ được gửi qua email. Vui lòng chờ ít nhất một phút trước khi yêu cầu lại.");}
  record EmailRequest(@NotBlank @Email @Size(max=254)String email){EmailRequest{email=Account.normalizeEmail(email);}@Override public String toString(){return "EmailRequest[redacted]";}}
  record TokenRequest(@NotBlank @Size(min=43,max=43)String token){@Override public String toString(){return "TokenRequest[redacted]";}}

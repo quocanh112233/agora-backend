@@ -1,0 +1,483 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agora own account profile",
+    "version": "1.0.0",
+    "description": "Own-account editing only, CSRF for mutations. Profile version independent from authentication version. Email change needs current password and new-address link, then revokes sessions. Avatar client uploadId binds owner/file/version; inspect profile after uncertain outcome, never retry blindly. No role/type/selfdelete/session-device APIs."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/me/profile": {
+      "get": {
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateProfile",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/avatar": {
+      "put": {
+        "operationId": "uploadAvatar",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarUpload"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeAvatar",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/email-changes": {
+      "post": {
+        "operationId": "requestEmailChange",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "message"
+                  ],
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChangeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/email-changes/confirm": {
+      "post": {
+        "operationId": "confirmEmailChange",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Request rejected safely"
+          },
+          "401": {
+            "description": "Request rejected safely"
+          },
+          "403": {
+            "description": "Request rejected safely"
+          },
+          "409": {
+            "description": "Request rejected safely"
+          },
+          "413": {
+            "description": "Request rejected safely"
+          },
+          "415": {
+            "description": "Request rejected safely"
+          },
+          "422": {
+            "description": "Request rejected safely"
+          },
+          "429": {
+            "description": "Request rejected safely"
+          },
+          "503": {
+            "description": "Request rejected safely"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenConfirmation"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Avatar": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 512
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "email",
+          "displayName",
+          "version",
+          "avatar"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "avatar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Avatar"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ProfileUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName",
+          "expectedVersion"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740990
+          }
+        }
+      },
+      "VersionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedVersion"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740990
+          }
+        }
+      },
+      "EmailChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "newEmail"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "newEmail": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          }
+        }
+      },
+      "TokenConfirmation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "writeOnly": true
+          }
+        }
+      },
+      "AvatarUpload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "uploadId",
+          "expectedVersion"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "uploadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedVersion": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,15})$"
+          }
+        }
+      }
+    }
+  }
+}

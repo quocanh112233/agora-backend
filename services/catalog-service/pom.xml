@@ -8,6 +8,7 @@
     </parent>
     <artifactId>catalog-service</artifactId>
     <dependencies>
+        <dependency><groupId>com.agora</groupId><artifactId>cloudinary-media</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>com.agora</groupId><artifactId>identity-contract</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>com.agora</groupId><artifactId>merchant-contract</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>com.agora</groupId><artifactId>catalog-contract</artifactId><version>${project.version}</version></dependency>

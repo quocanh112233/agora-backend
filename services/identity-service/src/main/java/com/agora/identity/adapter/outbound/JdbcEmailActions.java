@@ -84,11 +84,17 @@ public class JdbcEmailActions implements EmailActionStore {
                         rs.getString("purpose"),
                         rs.getLong("account_version"),
                         rs.getString("pending_password_hash"),
+                        rs.getString("pending_email"),
                         rs.getTimestamp("expires_at").toInstant(),
                         rs.getBoolean("usable")),
                 id);
     }
 
+    public void targetEmail(UUID action,String email) { jdbc.update("UPDATE identity.email_actions SET pending_email=? WHERE id=?",email,action); }
+    public void applyEmail(State account,UUID action,String email) {
+        jdbc.update("UPDATE identity.accounts SET email=?,email_verified_at=clock_timestamp() WHERE id=?",email,account.id());
+        apply(account,action,null);
+    }
     public void apply(State account, UUID action, String passwordHash) {
         int changed = jdbc.update(
                 "UPDATE identity.accounts SET password_hash=COALESCE(?,password_hash),email_verified_at=COALESCE(email_verified_at,clock_timestamp()),version=version+1,updated_at=clock_timestamp() WHERE id=? AND version=? AND status='ACTIVE'",
@@ -107,7 +113,7 @@ public class JdbcEmailActions implements EmailActionStore {
     public Optional<Delivery> pending() {
         return jdbc.query(
                         """
-                        SELECT e.id,a.email,e.purpose,e.token_cipher,e.expires_at FROM identity.email_actions e JOIN identity.accounts a ON a.id=e.account_id
+                        SELECT e.id,COALESCE(e.pending_email,a.email),e.purpose,e.token_cipher,e.expires_at FROM identity.email_actions e JOIN identity.accounts a ON a.id=e.account_id
                         WHERE e.delivered_at IS NULL AND e.used_at IS NULL AND e.revoked_at IS NULL AND e.token_cipher IS NOT NULL
                         AND e.expires_at>clock_timestamp() AND e.retry_at<=clock_timestamp() AND a.status='ACTIVE' AND a.account_type IS NOT NULL AND a.version=e.account_version
                         ORDER BY e.retry_at,e.id LIMIT 1 FOR UPDATE OF e SKIP LOCKED

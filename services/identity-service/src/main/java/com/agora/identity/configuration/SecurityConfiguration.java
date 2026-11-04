@@ -53,8 +53,9 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/registrations", "/api/v1/auth/seller-registrations", "/api/v1/auth/sessions", "/actuator/health/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/auth/email-verifications", "/api/v1/auth/email-verifications/confirm",
-                                "/api/v1/auth/password-resets", "/api/v1/auth/password-resets/confirm", "/api/v1/auth/password-changes/confirm").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/me/password-changes").authenticated()
+                                "/api/v1/auth/password-resets", "/api/v1/auth/password-resets/confirm", "/api/v1/auth/password-changes/confirm", "/api/v1/auth/email-changes/confirm").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/me/password-changes", "/api/v1/me/email-changes").authenticated()
+                        .requestMatchers("/api/v1/me/profile", "/api/v1/me/avatar").authenticated()
                         .requestMatchers("/api/v1/me", "/api/v1/auth/sessions/current").authenticated()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/admin/accounts", "/api/v1/admin/accounts/**").authenticated()
                         .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/v1/admin/accounts/*/status").authenticated()

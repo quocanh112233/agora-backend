@@ -79,6 +79,9 @@ public class ApiErrors {
         return ResponseEntity.status(503).body(body(request,"IDENTITY_UNAVAILABLE","Dịch vụ tài khoản tạm thời chưa sẵn sàng."));
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<?> uploadSize(HttpServletRequest request){return ResponseEntity.status(413).body(body(request,"FILE_TOO_LARGE","Ảnh tối đa5MiB."));}
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<?> unexpected(Exception exception, HttpServletRequest request) {
         org.slf4j.LoggerFactory.getLogger(ApiErrors.class).error("Request failed traceId={} type={}",

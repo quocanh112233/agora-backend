@@ -25,6 +25,7 @@ Các cổng8081–8087/9091–9095 ở bảng là listener của service khi ch�
 ## Chức năng
 
 - Đăng ký BUYER/SELLER riêng, email duy nhất toàn hệ thống; xác nhận email bắt buộc trước đăng nhập.
+- Sửa hồ sơ của chính mình: tên hiển thị, avatar Cloudinary, đổi email có mật khẩu hiện tại và link xác nhận đến email mới.
 - Session cookie HttpOnly, CSRF, Argon2id; quên/đổi mật khẩu bằng link dùng một lần, thu hồi phiên sau thay đổi.
 - Tạo shop, gửi duyệt, phê duyệt/từ chối; admin khóa/mở account và đình chỉ/mở shop với version CAS, lý do và audit.
 - Sản phẩm/SKU đóng gói, ảnh Cloudinary, công bố sản phẩm, lô/hạn dùng, giữ tồn FEFO.
@@ -120,11 +121,13 @@ Không thêm `-v` hoặc prune volumes. Volume mới init đủ bảy database; 
 
 ## Migration và dữ liệu cũ
 
-Backup trước khi nâng schema; xác nhận đúng database/volume rồi để Flyway validate và migrate. Bản hiện tại: IdentityV6, MerchantV3, CatalogV8, CommerceV3, PaymentV2, FeedbackV2, EmailV1. Migration không tự tạo database PostgreSQL.
+Backup trước khi nâng schema; xác nhận đúng database/volume rồi để Flyway validate và migrate. Bản hiện tại: IdentityV7, MerchantV3, CatalogV8, CommerceV3, PaymentV2, FeedbackV2, EmailV1. Migration không tự tạo database PostgreSQL.
 
 V4 giữ account cũ có account_type NULL để operator phân loại sau kiểm kê ownership; dùng [classify-legacy-account.sql](scripts/classify-legacy-account.sql) với UUID/loại/version đã xác minh. Không suy loại từ role hoặc tự tách dữ liệu mixed BUYER/SELLER. V6 giữ email_verified_at NULL; cần gửi lại link và xác nhận, không backfill verified. Account chưa phân loại/chưa xác nhận chưa đăng nhập được. Session cũ thiếu version stamp phải đăng nhập lại.
 
 [grant-local-admin.sql](scripts/grant-local-admin.sql) chỉ cấp ADMIN thủ công cho account ACTIVE đã phân loại và xác nhận email trên đúng database; không tạo password hoặc account mặc định. Account/shop moderation ghi audit và CAS; khóa account thu hồi phiên, mở lại không phục hồi phiên hoặc tự mở shop bị đình chỉ. Không tự hủy đơn/hoàn tiền khi khóa.
+
+Thông tin admin local có thể lưu trong ignored `.env` bằng `ADMIN_EMAIL` và `ADMIN_PASSWORD`; dùng email để đăng nhập. Đây chỉ là nơi giữ credential đã provision, không phải cơ chế tự tạo admin khi app chạy. Sửa các biến này không đổi mật khẩu trong database; đổi mật khẩu qua chức năng tài khoản. Không đưa password thật vào `.env.example` hoặc Git.
 
 ## Hợp đồng API và email
 
@@ -144,6 +147,25 @@ Sáu POST email cần CSRF:
 Verify link24giờ; reset/change30phút; cooldown60giây. Public resend/reset trả202 chung, không lộ email tồn tại. Mật khẩu12–128 Unicode code points, không toàn khoảng trắng. Mở link không xác nhận bằng GET; cần POST. Reset/change thành công thu hồi mọi phiên, không tự login.
 
 Identity giữ hash token và outbox mã hóa; Email gửi template qua gRPC nội bộ. SMTP lỗi được retry. SMTP đã nhận nhưng ACK/commit mất có thể gửi lặp; link vẫn dùng một lần. Ciphertext/pending hash được clear khi gửi/consume/expiry; expired metadata được purge sau7ngày.
+
+## Hồ sơ cá nhân
+
+[account-profile.v1.openapi.json](contracts/openapi/account-profile.v1.openapi.json) áp dụng cho chính account đang đăng nhập, gồm BUYER/SELLER/ADMIN. Không nhận accountId, role hoặc loại tài khoản từ form để sửa người khác.
+
+| Endpoint dưới /api/v1 | Hành vi |
+| --- | --- |
+| GET /me/profile | Đọc tên/email/avatar và version hồ sơ |
+| PATCH /me/profile | Sửa displayName với expectedVersion |
+| PUT /me/avatar | Multipart file, uploadIdUUID, expectedVersion; trả hồ sơ mới |
+| DELETE /me/avatar | Gỡ avatar với expectedVersion |
+| POST /me/email-changes | currentPassword + newEmail, queue link30phút |
+| POST /auth/email-changes/confirm | Token dùng một lần; đổi email và thu hồi phiên |
+
+Mutation cần CSRF. Tên2–100 Unicode code points sau trim, không có ký tự điều khiển. Version hồ sơ độc lập với version bảo mật; sửa tên/avatar không làm mất đăng nhập. CAS409 yêu cầu tải lại trước khi gửi ý định mới. Public Account giữ nguyên shape; avatar nằm trong Profile riêng.
+
+Ảnh tối đa5MiB, JPEG/PNG, magic bytes khớp MIME và tối đa20triệu pixels. Identity dùng cùng provider/parser đã kiểm của Catalog qua cloudinary-media, nhưng namespace chỉ `agora/avatars/<accountId>/<uploadId>`; Catalog vẫn chỉ `agora/products/...`. UploadId gắn owner/file/version, một request được claim UPLOADING trước remote I/O. Timeout/409 cần GET kiểm tra hồ sơ, không tự upload lại. Gỡ/thay avatar cập nhật hồ sơ ngay; xóa storage chờ intent hết hạn1giờ+grace1phút. Cleanup batch10 và retry riêng; tombstone được giữ và đối soát đúng ID hàng ngày để xử lý provider hoàn tất muộn. Không xóa ảnh còn gắn hoặc ảnh sản phẩm; CDN có thể còn cache.
+
+Đổi email cần xác thực lại mật khẩu, kiểm UNIQUE và xác nhận email mới; email cũ vẫn dùng trước confirm. Sau confirm, mọi phiên/link cũ bị thu hồi, đăng nhập bằng email mới. Không đổi type/role. Nếu thông tin admin được ghi trong .env, bản ghi đó không tự cập nhật khi đổi email/password qua giao diện. Không triển khai đổi quyền ADMIN, tự xóa account hoặc danh sách thiết bị/phiên.
 
 ## Kiểm thử và CI
 

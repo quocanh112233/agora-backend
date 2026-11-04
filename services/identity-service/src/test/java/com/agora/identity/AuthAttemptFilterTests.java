@@ -16,7 +16,7 @@ class AuthAttemptFilterTests {
         for (String path : java.util.List.of("/api/v1/auth/registrations", "/api/v1/auth/seller-registrations",
                 "/api/v1/auth/email-verifications", "/api/v1/auth/email-verifications/confirm",
                 "/api/v1/auth/password-resets", "/api/v1/auth/password-resets/confirm",
-                "/api/v1/auth/password-changes/confirm", "/api/v1/me/password-changes")) {
+                "/api/v1/auth/password-changes/confirm", "/api/v1/me/password-changes", "/api/v1/me/email-changes", "/api/v1/auth/email-changes/confirm")) {
             var request = new MockHttpServletRequest("POST", path);
             request.setRemoteAddr("127.0.0.1");
             var response = new MockHttpServletResponse();

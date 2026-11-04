@@ -50,23 +50,23 @@ class EmailDeliveryTests {
         var metadata = new Metadata(); metadata.put(Metadata.Key.of("x-agora-internal-token", Metadata.ASCII_STRING_MARSHALLER), "email-integration-token-not-a-real-secret");
         return EmailDeliveryGrpc.newBlockingStub(channel).withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata)).withDeadlineAfter(10, TimeUnit.SECONDS);
     }
-    @Test void realSmtpRendersAllThreeLinksAndCommittedDeliveryIsIdempotent() throws Exception {
+    @Test void realSmtpRendersAllFourLinksAndCommittedDeliveryIsIdempotent() throws Exception {
         var channel = ManagedChannelBuilder.forAddress("127.0.0.1", grpc.port()).usePlaintext().build();
         try {
             var rpc = rpc(channel);
-            for (var purpose : List.of(LinkPurpose.VERIFY_EMAIL, LinkPurpose.RESET_PASSWORD, LinkPurpose.CHANGE_PASSWORD)) {
+            for (var purpose : List.of(LinkPurpose.VERIFY_EMAIL, LinkPurpose.RESET_PASSWORD, LinkPurpose.CHANGE_PASSWORD, LinkPurpose.CHANGE_EMAIL)) {
                 var request = message(purpose);
                 assertThat(rpc.sendLink(request).getAccepted()).isTrue(); assertThat(rpc.sendLink(request).getAccepted()).isTrue();
                 byte[] raw = SMTP.messages.poll(2, TimeUnit.SECONDS); assertThat(raw).isNotNull();
                 var mime = new MimeMessage(jakarta.mail.Session.getInstance(new Properties()), new ByteArrayInputStream(raw));
                 assertThat(mime.getSubject()).contains("Agora");
-                String route = switch (purpose) { case VERIFY_EMAIL -> "verify-email"; case RESET_PASSWORD -> "reset-password"; default -> "confirm-password-change"; };
+                String route = switch (purpose) { case VERIFY_EMAIL -> "verify-email"; case RESET_PASSWORD -> "reset-password"; case CHANGE_EMAIL -> "confirm-email-change"; default -> "confirm-password-change"; };
                 assertThat(mime.getContent().toString()).contains("http://127.0.0.1:3000/" + route + "#token=" + request.getToken());
                 assertThatThrownBy(() -> rpc.sendLink(request.toBuilder().setRecipient("other@example.test").build()))
                     .isInstanceOfSatisfying(StatusRuntimeException.class, e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
             }
             assertThat(SMTP.messages).isEmpty();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM email.deliveries WHERE delivered", Integer.class)).isEqualTo(3);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM email.deliveries WHERE delivered", Integer.class)).isEqualTo(4);
         } finally { channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS); }
     }
     @Test void rejectsUntrustedMalformedAndExpiredRequestsWithoutSending() throws Exception {

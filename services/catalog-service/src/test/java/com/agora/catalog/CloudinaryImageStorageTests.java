@@ -90,6 +90,14 @@ class CloudinaryImageStorageTests {
         assertThat(request.uri().toString()).isEqualTo("https://api.cloudinary.com/v1_1/fixture-cloud/image/destroy");
         assertThat(body(request)).contains("public_id=agora%2Fproducts%2F", "invalidate=true");
     }
+    @Test void mediaNamespacesCannotCrossServiceBoundaries() {
+        var avatars=new com.agora.media.CloudinaryImageStorage(http,JsonMapper.builder().build(),"fixture-cloud","fixture-key","fixture-secret","avatars",()->new IllegalStateException("Synthetic failure"));
+        String avatar=ID.replace("/products/","/avatars/");
+        assertThatThrownBy(()->avatars.delete(ID)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(()->storage.find(avatar)).isInstanceOf(CatalogFailure.class);
+        assertThatThrownBy(()->storage.upload(new byte[]{1},"image/png",avatar)).isInstanceOf(CatalogFailure.class);
+        verifyNoInteractions(http);
+    }
     @Test void arbitraryIdsNeverReachProvider() {
         for (String id : List.of("sample", "https://attacker.invalid/file", "agora/products/../foreign", ID + "/more")) {
             assertThatThrownBy(() -> storage.delete(id)).isInstanceOf(CatalogFailure.class);
