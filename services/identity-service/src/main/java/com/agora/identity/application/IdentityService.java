@@ -11,23 +11,29 @@ public class IdentityService {
     private final AccountRepository accounts;
     private final PasswordEncoder passwords;
     private final String dummyHash;
+    private final EmailActions email;
 
-    public IdentityService(AccountRepository accounts, PasswordEncoder passwords) {
+    public IdentityService(AccountRepository accounts, PasswordEncoder passwords, EmailActions email) {
         this.accounts = accounts;
+        this.email = email;
         this.passwords = passwords;
         this.dummyHash = passwords.encode(UUID.randomUUID().toString());
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public Account register(String email, String password, String displayName, com.agora.identity.domain.AccountType accountType) {
-        return accounts.create(Account.newUser(UUID.randomUUID(), email, displayName, accountType, Instant.now()),
-                passwords.encode(password));
+        if (password.codePointCount(0, password.length()) < 12 || password.codePointCount(0, password.length()) > 128)
+            throw new com.agora.identity.domain.AdminAccountFailure(422, "VALIDATION_ERROR", "Mật khẩu cần từ 12 đến 128 ký tự.");
+        Account account = accounts.create(Account.newUser(UUID.randomUUID(), email, displayName, accountType, Instant.now()), passwords.encode(password));
+        this.email.verification(account.id());
+        return account;
     }
 
     public AccountRepository.Snapshot login(String email, String password) {
         var stored = accounts.findByEmail(Account.normalizeEmail(email));
         // Always run the KDF, including absent/suspended users; never identify which credential failed.
         boolean matches = passwords.matches(password, stored.map(AccountRepository.Credentials::hash).orElse(dummyHash));
-        if (stored.isEmpty() || !matches || !stored.get().account().status().equals("ACTIVE") || stored.get().account().accountType() == null) {
+        if (stored.isEmpty() || !matches || !stored.get().account().status().equals("ACTIVE") || stored.get().account().accountType() == null || !stored.get().emailVerified()) {
             throw new Unauthenticated();
         }
         var verified = current(stored.get().account().id());
@@ -37,7 +43,7 @@ public class IdentityService {
 
     public AccountRepository.Snapshot current(UUID id) {
         return accounts.findById(id).filter(snapshot -> snapshot.account().status().equals("ACTIVE")
-                && snapshot.account().accountType() != null).orElseThrow(Unauthenticated::new);
+                && snapshot.account().accountType() != null && snapshot.emailVerified()).orElseThrow(Unauthenticated::new);
     }
 
     public Account authenticated(UUID id, Object typeStamp, Object versionStamp) {

@@ -32,20 +32,20 @@ public class JdbcAccounts implements AccountRepository {
 
     @Override
     public Optional<Snapshot> findById(UUID id) {
-        return jdbc.query("SELECT * FROM identity.accounts WHERE id = ?", (rs, row) -> new Snapshot(map(rs, row), rs.getLong("version")), id).stream().findFirst();
+        return jdbc.query("SELECT * FROM identity.accounts WHERE id = ?", (rs, row) -> new Snapshot(map(rs, row), rs.getLong("version"), rs.getTimestamp("email_verified_at") != null), id).stream().findFirst();
     }
 
     @Override
     public Optional<Credentials> findByEmail(String email) {
         return jdbc.query("SELECT * FROM identity.accounts WHERE email = ?",
-                (rs, row) -> new Credentials(map(rs, row), rs.getString("password_hash"), rs.getLong("version")), email).stream().findFirst();
+                (rs, row) -> new Credentials(map(rs, row), rs.getString("password_hash"), rs.getLong("version"), rs.getTimestamp("email_verified_at") != null), email).stream().findFirst();
     }
 
     @Override
     public java.util.List<State> states(java.util.List<UUID> ids) {
         if (ids.isEmpty()) return java.util.List.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
-        return jdbc.query("SELECT id, account_type, status FROM identity.accounts WHERE account_type IS NOT NULL AND id IN ("
+        return jdbc.query("SELECT id, account_type, status FROM identity.accounts WHERE account_type IS NOT NULL AND email_verified_at IS NOT NULL AND id IN ("
                 + placeholders + ")", (rs, row) -> new State(rs.getObject("id", UUID.class),
                 com.agora.identity.domain.AccountType.valueOf(rs.getString("account_type")), "ACTIVE".equals(rs.getString("status"))), ids.toArray());
     }

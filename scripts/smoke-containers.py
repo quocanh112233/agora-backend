@@ -9,10 +9,17 @@ import secrets
 import urllib.error
 import urllib.request
 import uuid
+import re
+import time
+import urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--reuse", action="store_true", help="Verify the previous synthetic account/shop survived recreation")
+parser.add_argument("--mailpit-url", default="http://127.0.0.1:8025", help="Loopback SMTP test inbox; only used for newly registered fixtures")
 args = parser.parse_args()
+inbox = urllib.parse.urlsplit(args.mailpit_url)
+if inbox.scheme != "http" or inbox.hostname not in {"127.0.0.1", "localhost", "::1"} or inbox.username or inbox.password or inbox.query or inbox.fragment or inbox.path not in {"", "/"}:
+    raise RuntimeError("Only a loopback Mailpit inbox is allowed for fixture verification")
 state_path = Path(__file__).resolve().parents[1] / "target/account-types-container-smoke.json"
 if args.reuse:
     state = json.loads(state_path.read_text())
@@ -44,12 +51,33 @@ def csrf():
     assert value["headerName"] == "X-CSRF-TOKEN" and value["token"]
     return {value["headerName"]: value["token"]}
 
+def verify_fixture(email):
+    for _ in range(60):
+        with urllib.request.urlopen(args.mailpit_url.rstrip("/") + "/api/v1/messages", timeout=5) as response:
+            messages = json.load(response)["messages"]
+        for message in messages:
+            if not any(recipient["Address"].lower() == email.lower() for recipient in message["To"]):
+                continue
+            with urllib.request.urlopen(args.mailpit_url.rstrip("/") + "/api/v1/message/" + urllib.parse.quote(message["ID"], safe=""), timeout=5) as response:
+                text = json.load(response)["Text"]
+            match = re.search(r"http://127\.0\.0\.1:3000/verify-email#token=([A-Za-z0-9_-]{43})", text)
+            if match:
+                call("POST", "/auth/email-verifications/confirm", 204, {"token": match.group(1)}, csrf())
+                return
+        time.sleep(0.5)
+    raise RuntimeError("Synthetic verification email did not reach local Mailpit; no token printed")
+
 if not args.reuse:
+    # Check the local test inbox before generating registrations; never use provider mail for these fixtures.
+    with urllib.request.urlopen(args.mailpit_url.rstrip("/") + "/api/v1/messages", timeout=5):
+        pass
     call("POST", "/auth/seller-registrations", 201,
          {"email": state["email"], "password": state["password"], "displayName": "Docker Demo Seller"}, csrf())
     call("POST", "/auth/registrations", 201,
          {"email": state["buyerEmail"], "password": state["buyerPassword"], "displayName": "Docker Demo Buyer"}, csrf())
     call("GET", "/me", 401)
+    verify_fixture(state["email"])
+    verify_fixture(state["buyerEmail"])
 account = call("POST", "/auth/sessions", 200, {"email": state["email"], "password": state["password"]}, csrf())
 assert call("GET", "/me", 200)["id"] == account["id"]
 assert account["accountType"] == "SELLER"

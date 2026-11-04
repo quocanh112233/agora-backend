@@ -52,7 +52,31 @@ services:
       HEALTH_PORT: '8081'
       SERVER_PORT: '8081'
       IDENTITY_GRPC_ENABLED: 'true'
+      EMAIL_DELIVERY_ENABLED: 'true'
+      EMAIL_TOKEN_ENCRYPTION_KEY: ${EMAIL_TOKEN_ENCRYPTION_KEY:?Run scripts/init-demo-env.py}
+      EMAIL_GRPC_HOST: 127.0.0.1
+      EMAIL_GRPC_PORT: '9095'
       SESSION_COOKIE_SECURE: 'false'
+  email:
+    <<: *backend
+    build:
+      context: .
+      args: {SERVICE: email-service}
+    environment:
+      <<: *environment
+      HEALTH_PORT: '8087'
+      EMAIL_DB_NAME: agora_email
+      EMAIL_GRPC_ENABLED: 'true'
+      EMAIL_GRPC_PORT: '9095'
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      PUBLIC_WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://127.0.0.1:3000}
   merchant:
     <<: *backend
     build:

@@ -71,7 +71,12 @@ public class ApiErrors {
 
     @ExceptionHandler(com.agora.identity.domain.AdminAccountFailure.class)
     ResponseEntity<?> adminFailure(com.agora.identity.domain.AdminAccountFailure failure, HttpServletRequest request) {
-        return ResponseEntity.status(failure.status()).body(body(request, failure.code(), failure.getMessage()));
+        return ResponseEntity.status(failure.status()).headers(headers -> { if (failure.status()==429) headers.set("Retry-After","60"); }).body(body(request, failure.code(), failure.getMessage()));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    ResponseEntity<?> storage(HttpServletRequest request) {
+        return ResponseEntity.status(503).body(body(request,"IDENTITY_UNAVAILABLE","Dịch vụ tài khoản tạm thời chưa sẵn sàng."));
     }
 
     @ExceptionHandler(Exception.class)

@@ -86,14 +86,14 @@ public class IdentityController {
     }
 
     record Registration(@NotBlank @Email @Size(max = 254) String email,
-                        @NotBlank @Size(min = 12, max = 128) String password,
+                        @NotBlank @Size(min = 12, max = 256) String password,
                         @NotBlank @Size(min = 2, max = 100) String displayName) {
         Registration { email = Account.normalizeEmail(email); displayName = displayName == null ? null : displayName.strip(); }
         @Override public String toString() { return "Registration[redacted]"; }
     }
 
     record Login(@NotBlank @Email @Size(max = 254) String email,
-                 @NotBlank @Size(min = 1, max = 128) String password) {
+                 @NotBlank @Size(min = 1, max = 256) String password) {
         Login { email = Account.normalizeEmail(email); }
         @Override public String toString() { return "Login[redacted]"; }
     }

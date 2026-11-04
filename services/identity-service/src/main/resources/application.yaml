@@ -37,6 +37,11 @@ server:
         secure: ${SESSION_COOKIE_SECURE:false}
 
 agora:
+  email:
+    token-key: ${EMAIL_TOKEN_ENCRYPTION_KEY:}
+    delivery-enabled: ${EMAIL_DELIVERY_ENABLED:false}
+    host: ${EMAIL_GRPC_HOST:127.0.0.1}
+    port: ${EMAIL_GRPC_PORT:9095}
   grpc:
     enabled: ${IDENTITY_GRPC_ENABLED:false}
     port: ${IDENTITY_GRPC_PORT:9091}

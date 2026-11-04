@@ -31,7 +31,11 @@ public class AuthAttemptFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !request.getMethod().equals("POST") || !(request.getRequestURI().equals("/api/v1/auth/sessions")
                 || request.getRequestURI().equals("/api/v1/auth/registrations")
-                || request.getRequestURI().equals("/api/v1/auth/seller-registrations"));
+                || request.getRequestURI().equals("/api/v1/auth/seller-registrations")
+                || request.getRequestURI().startsWith("/api/v1/auth/email-verifications")
+                || request.getRequestURI().startsWith("/api/v1/auth/password-resets")
+                || request.getRequestURI().equals("/api/v1/auth/password-changes/confirm")
+                || request.getRequestURI().equals("/api/v1/me/password-changes"));
     }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

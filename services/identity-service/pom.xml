@@ -16,6 +16,7 @@
     <description>Identity and access service foundation</description>
 
     <dependencies>
+        <dependency><groupId>com.agora</groupId><artifactId>email-contract</artifactId><version>${project.version}</version></dependency>
         <dependency>
             <groupId>com.agora</groupId>
             <artifactId>identity-contract</artifactId>

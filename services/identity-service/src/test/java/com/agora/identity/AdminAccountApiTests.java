@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.config.import=", "agora.grpc.enabled=false", "agora.auth.rate-limit.attempts=1000" })
+        "spring.config.import=", "agora.email.delivery-enabled=false", "agora.email.token-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "agora.grpc.enabled=false", "agora.auth.rate-limit.attempts=1000" })
 class AdminAccountApiTests {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             System.getProperty("agora.test.postgres-image", "postgres:16.15-alpine"));
@@ -152,7 +152,10 @@ class AdminAccountApiTests {
             return client.send(b.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
         }
         HttpResponse<String> post(String path, String body) throws Exception {
-            return request("POST", path, body, tree(get("/auth/csrf")).path("token").asString());
+            var response = request("POST", path, body, tree(get("/auth/csrf")).path("token").asString());
+            if (response.statusCode()==201 && path.equals("/auth/registrations"))
+                jdbc.update("UPDATE identity.accounts SET email_verified_at=clock_timestamp() WHERE id=?",UUID.fromString(tree(response).path("id").asString()));
+            return response;
         }
         UUID loginBuyer() throws Exception {
             String email = "admin-fixture-" + UUID.randomUUID() + "@example.test";

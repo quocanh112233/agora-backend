@@ -19,10 +19,12 @@
     <description>Agora marketplace backend services</description>
 
     <modules>
+        <module>libraries/email-contract</module>
         <module>libraries/identity-contract</module>
         <module>libraries/merchant-contract</module>
         <module>libraries/catalog-contract</module>
         <module>libraries/commerce-contract</module>
+        <module>services/email-service</module>
         <module>services/identity-service</module>
         <module>services/merchant-service</module>
         <module>services/catalog-service</module>

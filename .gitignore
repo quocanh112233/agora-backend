@@ -20,3 +20,7 @@ Thumbs.db
 # Local documentation and task plans
 /docs/
 /tasks/
+
+# Python helper bytecode
+__pycache__/
+*.py[cod]

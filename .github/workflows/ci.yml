@@ -28,6 +28,6 @@ jobs:
         run: ./mvnw -B -ntp -Dagora.test.postgres-image=postgres:16 verify
       - name: Build all service images without publishing
         run: |
-          for service in identity merchant catalog commerce payment feedback; do
+          for service in identity merchant catalog commerce payment feedback email; do
             docker build --build-arg SERVICE="$service-service" --tag "agora/$service:ci" .
           done

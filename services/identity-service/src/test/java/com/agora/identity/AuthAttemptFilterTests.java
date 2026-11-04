@@ -13,12 +13,15 @@ class AuthAttemptFilterTests {
     @Test
     void sellerRegistrationSharesTheAuthenticationAttemptBudget() throws Exception {
         var filter = new AuthAttemptFilter(1, Duration.ofMinutes(15), 100, new ApiErrors(JsonMapper.builder().build()));
-        for (String path : java.util.List.of("/api/v1/auth/registrations", "/api/v1/auth/seller-registrations")) {
+        for (String path : java.util.List.of("/api/v1/auth/registrations", "/api/v1/auth/seller-registrations",
+                "/api/v1/auth/email-verifications", "/api/v1/auth/email-verifications/confirm",
+                "/api/v1/auth/password-resets", "/api/v1/auth/password-resets/confirm",
+                "/api/v1/auth/password-changes/confirm", "/api/v1/me/password-changes")) {
             var request = new MockHttpServletRequest("POST", path);
             request.setRemoteAddr("127.0.0.1");
             var response = new MockHttpServletResponse();
             filter.doFilter(request, response, (req, res) -> ((jakarta.servlet.http.HttpServletResponse) res).setStatus(204));
-            assertThat(response.getStatus()).isEqualTo(path.endsWith("/seller-registrations") ? 429 : 204);
+            assertThat(response.getStatus()).isEqualTo(path.equals("/api/v1/auth/registrations") ? 204 : 429);
         }
     }
 

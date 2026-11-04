@@ -34,7 +34,7 @@ import com.agora.identity.application.IdentityService;
 import static org.mockito.Mockito.doAnswer;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"spring.config.import=", "agora.email.delivery-enabled=false", "agora.email.token-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
 class IdentityApiTests {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -402,7 +402,11 @@ class IdentityApiTests {
         HttpResponse<String> mutate(String method, String path, String body) throws Exception {
             var csrf = request("GET", "/auth/csrf", null, null);
             assertThat(csrf.statusCode()).isEqualTo(200);
-            return request(method, path, body, json.readTree(csrf.body()).path("token").asString());
+            var response = request(method, path, body, json.readTree(csrf.body()).path("token").asString());
+            // Existing auth fixtures model email ownership already verified; email-flow tests exercise the real link.
+            if (response.statusCode() == 201 && (path.equals("/auth/registrations") || path.equals("/auth/seller-registrations")))
+                jdbc.update("UPDATE identity.accounts SET email_verified_at=clock_timestamp() WHERE id=?", UUID.fromString(json.readTree(response.body()).path("id").asString()));
+            return response;
         }
 
         HttpResponse<String> request(String method, String path, String body, String token) throws Exception {

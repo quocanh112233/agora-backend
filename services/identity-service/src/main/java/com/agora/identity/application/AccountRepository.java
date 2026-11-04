@@ -8,7 +8,7 @@ public interface AccountRepository {
     Account create(Account account, String passwordHash);
     record State(UUID id, com.agora.identity.domain.AccountType accountType, boolean active) {}
     java.util.List<State> states(java.util.List<UUID> ids);
-    record Snapshot(Account account, long version) {}
+    record Snapshot(Account account, long version, boolean emailVerified) {}
     Optional<Snapshot> findById(UUID id);
     Optional<Credentials> findByEmail(String email);
 
@@ -17,7 +17,9 @@ public interface AccountRepository {
         private final Account account;
         private final String hash;
         private final long version;
-        public Credentials(Account account, String hash, long version) { this.account = account; this.hash = hash; this.version = version; }
+        private final boolean emailVerified;
+        public Credentials(Account account, String hash, long version, boolean emailVerified) { this.account = account; this.hash = hash; this.version = version; this.emailVerified = emailVerified; }
+        public boolean emailVerified() { return emailVerified; }
         public long version() { return version; }
         public Account account() { return account; }
         public String hash() { return hash; }

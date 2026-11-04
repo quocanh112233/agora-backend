@@ -1,0 +1,9 @@
+syntax = "proto3";
+package agora.email.v1;
+option java_package = "com.agora.contracts.email.v1";
+option java_multiple_files = true;
+// Private authenticated loopback only. Requests contain sensitive one-use tokens: never log payloads.
+service EmailDelivery { rpc SendLink(SendLinkRequest) returns (SendLinkResponse); }
+enum LinkPurpose { LINK_PURPOSE_UNSPECIFIED = 0; VERIFY_EMAIL = 1; RESET_PASSWORD = 2; CHANGE_PASSWORD = 3; }
+message SendLinkRequest { string delivery_id = 1; string recipient = 2; LinkPurpose purpose = 3; string token = 4; int64 expires_at_epoch_seconds = 5; }
+message SendLinkResponse { bool accepted = 1; }

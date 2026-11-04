@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.config.import=", "agora.grpc.enabled=true", "agora.grpc.port=0",
+        "spring.config.import=", "agora.email.delivery-enabled=false", "agora.email.token-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "agora.grpc.enabled=true", "agora.grpc.port=0",
         "agora.grpc.token=admin-status-integration-token-not-real-secret", "agora.auth.rate-limit.attempts=1000" })
 class AdminAccountStatusTests {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -280,6 +280,8 @@ class AdminAccountStatusTests {
         HttpResponse<String> status(UUID id, String status, long version) throws Exception { return send("PUT", "/admin/accounts/" + id + "/status", body(status, version, "Kiểm tra quản trị tài khoản"), csrf()); }
         UUID registerLogin() throws Exception {
             assertThat(send("POST", "/auth/registrations", json.writeValueAsString(Map.of("email", email, "displayName", "Status fixture", "password", "synthetic-long-password")), csrf()).statusCode()).isEqualTo(201);
+            // This fixture starts with verified ownership; link behavior is tested separately.
+            jdbc.update("UPDATE identity.accounts SET email_verified_at=clock_timestamp() WHERE email=?", email);
             var r = login(); assertThat(r.statusCode()).as(r.body()).isEqualTo(200);
             return UUID.fromString(tree(r).path("id").asString());
         }
